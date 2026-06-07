@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import re
 from awslabs.ec2_rescue_mcp_server.ec2rl.commands import (
-    _ARG_VALUE_RE,
     _EC2RL_RUN_PREFIX,
     _EC2RL_SOFTWARE_CHECK_CMD,
     _GATHERED_GREP_CMD_RE,
@@ -30,6 +29,7 @@ from awslabs.ec2_rescue_mcp_server.ec2rl.commands import (
     _LOG_SYSCTL_GREP_CMD_RE,
     _OUTPUT_DIR_RE,
     _PERFIMPACT_FLAG,
+    validate_arg_value,
 )
 from awslabs.ec2_rescue_mcp_server.ec2rl.registry import GATHEREDDIR_FILES
 
@@ -122,7 +122,7 @@ class Ec2rlModule:
                 continue
             if not _IDENTIFIER_RE.match(key):
                 raise ValueError(f'Invalid argument key: {key!r}')
-            if not isinstance(value, str) or not _ARG_VALUE_RE.match(value):
+            if not isinstance(value, str) or not validate_arg_value(key, value):
                 raise ValueError(
                     f'Invalid value for argument {key!r}: {value!r}'
                 )

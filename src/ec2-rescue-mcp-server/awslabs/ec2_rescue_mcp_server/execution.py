@@ -20,6 +20,7 @@ import inspect
 import json
 from awslabs.ec2_rescue_mcp_server import ec2rl as ec2rl_module
 from awslabs.ec2_rescue_mcp_server.ec2rl import Ec2rlModule, validate_command
+from awslabs.ec2_rescue_mcp_server.ec2rl.commands import _TIME_ARG_KEYS
 from awslabs.ec2_rescue_mcp_server.ec2rl.grep_strategy import (
     GatheredKvGrep,
     LogFixedGrep,
@@ -738,16 +739,27 @@ def _make_tool_func(module: Ec2rlModule):
         )
 
     for arg in module.optional_args:
+        if arg in _TIME_ARG_KEYS:
+            description = (
+                f'Optional argument --{arg}= for ec2rl module '
+                f'{module.name!r}. A single-token systemd.time value with NO '
+                'spaces: relative ("-48hr", "+1h"), keyword ("today", "now"), '
+                'date ("2026-06-06") or time ("13:00:00"). The spaced form '
+                '"2026-06-06 13:00:00" is NOT supported; use a relative form '
+                'instead. Omit to skip.'
+            )
+        else:
+            description = (
+                f'Optional argument --{arg}= for ec2rl module '
+                f'{module.name!r}. Omit to skip.'
+            )
         params.append(
             inspect.Parameter(
                 arg,
                 inspect.Parameter.KEYWORD_ONLY,
                 default=Field(
                     default=None,
-                    description=(
-                        f'Optional argument --{arg}= for ec2rl module '
-                        f'{module.name!r}. Omit to skip.'
-                    ),
+                    description=description,
                 ),
                 annotation=Optional[str],
             )

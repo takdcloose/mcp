@@ -41,6 +41,20 @@ _ARG_VALUE_RE = re.compile(r'^[A-Za-z0-9._/\-]+$')
 # Allowed module names and arg keys: alphanumeric, hyphen, underscore
 _IDENTIFIER_RE = re.compile(r'^[A-Za-z0-9_\-]+$')
 
+# journalctl --since=/--until= args (journal, kernelpanic, hungtasks, etc.).
+_TIME_ARG_KEYS = frozenset({'since', 'until'})
+# systemd.time charset: default set plus ':' and '+' for single-token forms
+# like 13:00:00 and +1h. No space — ec2rl runs `$CMD` unquoted, so a value
+# with a space (e.g. "2012-10-30 18:17:16") word-splits and loses the time.
+_TIME_ARG_VALUE_RE = re.compile(r'^[A-Za-z0-9:+._/\-]+$')
+
+
+def validate_arg_value(key: str, value: str) -> bool:
+    """True if ``value`` is allowed for argument ``key`` (time args get ':'/'+')."""
+    if key in _TIME_ARG_KEYS:
+        return bool(_TIME_ARG_VALUE_RE.match(value))
+    return bool(_ARG_VALUE_RE.match(value))
+
 _TIMESTAMP_RE = r'\d{4}-\d{2}-\d{2}T[\d_.]+'
 _OUTPUT_DIR_RE = re.compile(
     rf'^{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}$'
@@ -227,6 +241,6 @@ def validate_command(
         key, _, value = kv.partition('=')
         if key not in allowed_keys:
             return False
-        if not _ARG_VALUE_RE.match(value):
+        if not validate_arg_value(key, value):
             return False
     return True
