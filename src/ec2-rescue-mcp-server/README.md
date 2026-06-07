@@ -199,7 +199,7 @@ AWS credentials are passed via environment variables. Supported options:
 | `--modules NAME,...` | (none) | Additional module names beyond the default 32. |
 | `--remediate` | off | Register remediation modules (openssh, rebuildinitrd, etc.). |
 | `--allow-install` | off | Allow `install_ec2_rescue` without elicitation consent. |
-| `--skip-perfimpact-confirm` | off | Skip consent prompt for perfimpact modules (tcpdump, perf, strace). |
+| `--allow-perfimpact` | off | Permit perfimpact modules (tcpdump, perf, strace). Denied by default. |
 | `--mod-dir PATH` | bundled `mod.d/` | Override module YAML directory. |
 | `--transport {stdio,streamable-http}` | `stdio` | MCP transport. |
 | `--host HOST` | `127.0.0.1` | Bind host (streamable-http only). |
@@ -238,8 +238,9 @@ uv run pytest --cov --cov-branch --cov-report=term-missing
 The server uses [MCP elicitation](https://modelcontextprotocol.io/docs/concepts/elicitation) to request user confirmation before:
 
 - **Installing EC2 Rescue** (`install_ec2_rescue`) — bypass with `--allow-install`
-- **Running perfimpact modules** (tcpdump, perf, strace) — bypass with `--skip-perfimpact-confirm`
 - **Fetching large output** (messages, dmesg) — suggests `journal` with `--since`/`--until` instead
 - **Omitting grep_keys** (kernelconfig, sysctl, dpkgpackages, rpmpackages) — warns about large output
 
 If your MCP client does not support elicitation, use the CLI bypass flags listed above.
+
+> **Note on agentic clients:** MCP elicitation is **not** a reliable safety control when the client is an agent (e.g. Claude Code), because the agent can auto-answer the consent prompt without a human in the loop. For this reason **perfimpact modules** (tcpdump, perf, strace) are **fail-closed**: they are denied unless an operator explicitly starts the server with `--allow-perfimpact`. This is a startup flag precisely so the permission is an operator decision the agent cannot grant itself — not a runtime prompt.

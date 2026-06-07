@@ -95,15 +95,15 @@ class TestParseArgs:
         with pytest.raises(SystemExit):
             _parse_args(['--transport', 'sse'])
 
-    def test_skip_perfimpact_confirm_default_false(self):
-        """--skip-perfimpact-confirm defaults to False."""
+    def test_allow_perfimpact_default_false(self):
+        """--allow-perfimpact defaults to False."""
         args = _parse_args([])
-        assert args.skip_perfimpact_confirm is False
+        assert args.allow_perfimpact is False
 
-    def test_skip_perfimpact_confirm_flag(self):
-        """--skip-perfimpact-confirm sets the namespace attribute."""
-        args = _parse_args(['--skip-perfimpact-confirm'])
-        assert args.skip_perfimpact_confirm is True
+    def test_allow_perfimpact_flag(self):
+        """--allow-perfimpact sets the namespace attribute."""
+        args = _parse_args(['--allow-perfimpact'])
+        assert args.allow_perfimpact is True
 
     def test_allow_install_default_false(self):
         """--allow-install defaults to False."""

@@ -36,18 +36,6 @@ class _ReadAllElicitation(BaseModel):
     )
 
 
-class _PerfImpactConsent(BaseModel):
-    """Schema for asking the user to confirm a perfimpact module run."""
-
-    confirm: bool = Field(
-        description=(
-            'Confirm that this diagnostic may impact running processes '
-            '(packet capture, syscall tracing, CPU profiling). Set true '
-            'to proceed; false to abort.'
-        ),
-    )
-
-
 class _FetchAllConfirmation(BaseModel):
     """Schema for confirming a full (unfiltered) fetch when grep_keys is omitted."""
 
@@ -84,12 +72,11 @@ class _InstallEc2RescueConsent(BaseModel):
     )
 
 
-# Operator-level escape hatch for environments whose MCP client does not
-# support elicitation. Set by main() from the --skip-perfimpact-confirm
-# CLI flag. When True, the server skips the elicitation prompt and
-# proceeds straight to running the perfimpact module (still appending
-# `--perfimpact=true` to the ec2rl command, which ec2rl itself requires).
-_SKIP_PERFIMPACT_CONFIRM: bool = False
+# Operator permission for perfimpact modules, set by main() from
+# --allow-perfimpact. Denied by default (fail-closed): a runtime elicitation
+# prompt is no safeguard because agentic MCP clients auto-answer it, so
+# permission is a startup flag an agent cannot grant itself.
+_ALLOW_PERFIMPACT: bool = False
 
 # Whether the install_ec2_rescue tool is registered. Set by main() from
 # the --allow-install CLI flag. When False (default), the tool is not
@@ -99,78 +86,39 @@ _SKIP_PERFIMPACT_CONFIRM: bool = False
 _ALLOW_INSTALL: bool = False
 
 
-async def _perfimpact_consent_gate(
-    ctx: Context,
+def _perfimpact_consent_gate(
     instance_id: str,
     module: Ec2rlModule,
 ) -> str | None:
-    """Gate a perfimpact module run on explicit user consent.
+    """Gate a perfimpact module run on the ``--allow-perfimpact`` flag.
 
-    Callers must already have checked ``module.perfimpact`` before invoking
-    this function (matching the pattern used by ``_software_precheck``).
-
-    Returns None when the run may proceed (operator override or user
-    accepted). Returns an Aborted JSON envelope when the user declined or
-    elicitation isn't available and the operator hasn't opted out.
+    Callers must check ``module.perfimpact`` first. Returns None when
+    permitted, else an Aborted JSON envelope. See ``_ALLOW_PERFIMPACT`` for
+    why this is a startup flag rather than a runtime prompt.
     """
-    if _SKIP_PERFIMPACT_CONFIRM:
+    if _ALLOW_PERFIMPACT:
         logger.info(
-            f'Module {module.name!r} is perfimpact; consent gate skipped '
-            'by --skip-perfimpact-confirm operator override.'
-        )
-        return None
-
-    message = (
-        f"Module '{module.name}' may impact running processes on "
-        f'{instance_id} (packet capture, syscall tracing, or CPU '
-        "profiling). The ec2rl '--perfimpact=true' flag is required to "
-        'run it. Confirm to proceed.'
-    )
-    try:
-        elicit_result = await ctx.elicit(
-            message=message, schema=_PerfImpactConsent
-        )
-    except Exception as e:
-        logger.error(
-            f'Elicitation failed for perfimpact gate on {module.name!r}: '
-            f'{e!r}; aborting (set --skip-perfimpact-confirm at startup '
-            'to bypass when the client does not support elicitation).'
-        )
-        return ModuleResponse(
-            instance_id=instance_id,
-            module=module.name,
-            status='Aborted',
-            reason='perfimpact_consent_unavailable',
-            message=(
-                'This module requires user consent because it may '
-                'impact running processes, but the MCP client does '
-                'not support elicitation. Restart the server with '
-                '--skip-perfimpact-confirm to bypass.'
-            ),
-        ).as_json()
-
-    if (
-        elicit_result.action == 'accept'
-        and elicit_result.data is not None
-        and elicit_result.data.confirm
-    ):
-        logger.info(
-            f'User consented to running perfimpact module {module.name!r} '
-            f'on {instance_id}.'
+            f'Module {module.name!r} is perfimpact; permitted by '
+            '--allow-perfimpact.'
         )
         return None
 
     logger.info(
-        f'User declined perfimpact module {module.name!r} on {instance_id} '
-        f'(action={elicit_result.action!r}).'
+        f'Module {module.name!r} is perfimpact but --allow-perfimpact was '
+        'not set; denying (fail-closed).'
     )
     return ModuleResponse(
         instance_id=instance_id,
         module=module.name,
         status='Aborted',
-        reason='perfimpact_consent_denied',
+        reason='perfimpact_not_permitted',
         message=(
-            'User declined to run a module that may impact running processes.'
+            'This module may impact running processes (packet capture, '
+            'syscall tracing, CPU profiling) and is disabled by default. '
+            'An operator must restart the server with --allow-perfimpact to '
+            'enable it. This is deliberately a startup flag, not a runtime '
+            'consent prompt, because agentic MCP clients auto-answer '
+            'elicitation without a human in the loop.'
         ),
     ).as_json()
 

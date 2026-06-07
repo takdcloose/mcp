@@ -154,7 +154,6 @@ async def install_ec2_rescue(
 # ``awslabs.ec2_rescue_mcp_server.server``. The real definitions live in
 # :mod:`.execution` / :mod:`.elicitation`.
 from awslabs.ec2_rescue_mcp_server.elicitation import (  # noqa: E402, F401
-    _PerfImpactConsent,
     _ReadAllElicitation,
 )
 from awslabs.ec2_rescue_mcp_server.execution import (  # noqa: E402, F401
@@ -230,13 +229,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        '--skip-perfimpact-confirm',
+        '--allow-perfimpact',
         action='store_true',
         help=(
-            'Skip the user-consent elicitation prompt for perfimpact '
-            'modules (tcpdump, perf, strace, etc.). The ec2rl '
-            "'--perfimpact=true' flag is still appended either way. Use "
-            'this when the MCP client does not support elicitation.'
+            'Permit perfimpact modules (tcpdump, perf, strace, etc.), which '
+            'may impact running processes. Denied by default; a startup flag '
+            'rather than a runtime prompt because agentic MCP clients '
+            'auto-answer elicitation.'
         ),
     )
     parser.add_argument(
@@ -278,10 +277,10 @@ def main():
     logger.info(
         f'Starting {SERVER_NAME} '
         f'(region={aws_region}, mod_dir={mod_dir}, remediation={args.remediate}, '
-        f'skip_perfimpact_confirm={args.skip_perfimpact_confirm}, '
+        f'allow_perfimpact={args.allow_perfimpact}, '
         f'all={args.all})'
     )
-    _elicitation._SKIP_PERFIMPACT_CONFIRM = args.skip_perfimpact_confirm
+    _elicitation._ALLOW_PERFIMPACT = args.allow_perfimpact
     _elicitation._ALLOW_INSTALL = args.allow_install
 
     all_modules = load_modules_from_yaml_dir(mod_dir, include_remediation=args.remediate)

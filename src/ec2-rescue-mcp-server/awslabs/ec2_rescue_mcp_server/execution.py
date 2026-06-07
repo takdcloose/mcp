@@ -542,7 +542,7 @@ async def _run_ec2rl_module(
             return precheck
 
     if module.perfimpact:
-        consent = await _perfimpact_consent_gate(ctx, instance_id, module)
+        consent = _perfimpact_consent_gate(instance_id, module)
         if consent is not None:
             return consent
 
@@ -689,8 +689,8 @@ def _build_tool_docstring(module: Ec2rlModule) -> str:
     if module.perfimpact:
         lines.append(
             'NOTE: This module may impact running processes (packet capture, '
-            'syscall tracing, or CPU profiling). The MCP server will ask the '
-            'user for explicit consent before running.'
+            'syscall tracing, or CPU profiling). It is disabled unless the '
+            'server was started with --allow-perfimpact.'
         )
         lines.append('')
     lines.append('Returns JSON with the module name, run status, and log content.')
