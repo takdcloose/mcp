@@ -353,9 +353,19 @@ async def _grep_gathered_files(
 ) -> str:
     """Run ``grep -hE '^(KEY1|KEY2|...)='`` per gathered file and return matches.
 
-    When ``files`` is None, asks the user via elicitation (or returns a
-    listing) so they can pick which files to grep.
+    When ``files`` is None, falls back to the curated :data:`GATHEREDDIR_FILES`
+    entry. If that is empty (e.g. ``kernelconfig``), discovers files under
+    ``gathered_out/<module>/`` via ``find`` and greps them all — keeping the
+    response small via ``grep_keys`` regardless of which files match.
     """
+    if not files:
+        curated = ec2rl_module.GATHEREDDIR_FILES.get(module.name, ())
+        if curated and curated != ('*',):
+            files = list(curated)
+        else:
+            files = await _discover_gathered_files(
+                instance_id, module, output_dir
+            )
     if not files:
         return await _list_or_elicit_gathered_files(
             ctx, instance_id, module, output_dir, run_result
