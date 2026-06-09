@@ -197,8 +197,18 @@ async def _discover_gathered_files(
     if listing['status'] == 'Success':
         for line in listing['stdout'].splitlines():
             line = line.strip()
-            if line.startswith(base):
-                available.append(line[len(base):])
+            if not line.startswith(base):
+                continue
+            rel = line[len(base):]
+            # Skip names that fail the path allowlist so one bad file can't
+            # abort the whole read.
+            if not module.is_valid_gathered_relpath(output_dir, rel):
+                logger.warning(
+                    f'Skipping unreadable gathered file for {module.name!r}: '
+                    f'{rel!r} (failed path allowlist)'
+                )
+                continue
+            available.append(rel)
     return available
 
 

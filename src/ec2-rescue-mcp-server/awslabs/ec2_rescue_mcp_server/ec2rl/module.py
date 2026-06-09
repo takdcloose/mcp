@@ -215,6 +215,11 @@ class Ec2rlModule:
             cmds.append((rel, cmd))
         return cmds
 
+    def is_valid_gathered_relpath(self, output_dir: str, rel_path: str) -> bool:
+        """True if ``rel_path`` produces an allowlisted gathered ``cat`` command."""
+        cmd = f'cat {output_dir}/gathered_out/{self.name}/{rel_path}'
+        return bool(_GATHERED_READ_CMD_RE.match(cmd))
+
     def gathered_list_command(self, output_dir: str) -> str:
         """Return ``find <output_dir>/gathered_out/<name> -type f`` for listing.
 

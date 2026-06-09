@@ -64,14 +64,13 @@ _MOD_OUT_LOG_RE = re.compile(
     rf'^cat {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
     r'/mod_out/run/[A-Za-z0-9_\-]+\.log$'
 )
-# `gathered_out/<module>/<rel-path>` form, used by modules that write via
-# $EC2RL_GATHEREDDIR. Each path segment must start with an alnum/_ char so
-# `..` and dotfiles are rejected; subsequent chars also allow `.` and `-`
-# so filenames like `messages.1` and `cloud-init.log` work.
+# gathered path segment: alnum/_/./- with leading dot allowed (e.g.
+# `.placeholder`); the lookahead rejects `.`/`..` so traversal stays blocked.
+_GATHERED_SEG = r'(?:/(?!\.\.?(?:/|$))[A-Za-z0-9_.][A-Za-z0-9_.\-]*)+'
 _GATHERED_READ_CMD_RE = re.compile(
     rf'^cat {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
     r'/gathered_out/[A-Za-z0-9_\-]+'
-    r'(?:/[A-Za-z0-9_][A-Za-z0-9_.\-]*)+$'
+    rf'{_GATHERED_SEG}$'
 )
 # `find <gathered_out>/<module> -type f` for listing gathered files when the
 # caller hasn't curated GATHEREDDIR_FILES and hasn't supplied `files`.
@@ -89,7 +88,7 @@ _GATHERED_GREP_CMD_RE = re.compile(
     r"\)=' "
     rf'{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
     r'/gathered_out/[A-Za-z0-9_\-]+'
-    r"(?:/[A-Za-z0-9_][A-Za-z0-9_.\-]*)+$"
+    rf'{_GATHERED_SEG}$'
 )
 # `grep -vE '^[[:space:]]*#' <gathered file>` — strips comment lines
 # (leading-whitespace `#`) before returning the file. Used for config
@@ -99,7 +98,7 @@ _GATHERED_NOCOMMENT_CMD_RE = re.compile(
     r"^grep -vE '\^\[\[:space:\]\]\*#' "
     rf'{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
     r'/gathered_out/[A-Za-z0-9_\-]+'
-    r"(?:/[A-Za-z0-9_][A-Za-z0-9_.\-]*)+$"
+    rf'{_GATHERED_SEG}$'
 )
 # `grep -hE '^(K1|K2|...)[ \t]*=' <mod_out log>` — sysctl-style grep on
 # collect-class module logs where keys contain dots (e.g. net.ipv4.ip_forward).
