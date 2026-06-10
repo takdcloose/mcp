@@ -16,10 +16,6 @@
 
 import pytest
 from awslabs.ec2_rescue_mcp_server.ec2rl import (
-    ALLOWED_COMMANDS,
-    DMESG,
-    EC2RL_MODULES,
-    TOP,
     Ec2rlModule,
     validate_command,
     validate_log_read_command,
@@ -66,10 +62,12 @@ class TestEc2rlModule:
         module = Ec2rlModule('syslog', 'mod_out/run/syslog.log')
         assert module.run_command == 'ec2rl run --only-modules=syslog'
 
-    def test_run_command_with_extra_args(self):
-        """Generate run command with extra_args appended."""
-        module = Ec2rlModule('top', 'mod_out/run/top.log', extra_args='--times=5')
-        assert module.run_command == 'ec2rl run --only-modules=top --times=5'
+    def test_build_run_command_with_args(self):
+        """build_run_command appends --key=value pairs for declared args."""
+        module = Ec2rlModule('top', 'mod_out/run/top.log', required_args=['times'])
+        assert module.build_run_command({'times': '5'}) == (
+            'ec2rl run --only-modules=top --times=5'
+        )
 
     def test_log_read_command(self):
         """Generate cat command for a valid output directory."""
@@ -129,88 +127,56 @@ class TestValidateLogReadCommand:
         assert validate_log_read_command('rm /var/tmp/ec2rl/2026-04-14T02_50_34.749027/x.log') is False
 
 
-class TestModuleRegistry:
-    """Tests for the module registry."""
-
-    def test_dmesg_registered(self):
-        """DMESG module is in the registry."""
-        assert 'dmesg' in EC2RL_MODULES
-        assert EC2RL_MODULES['dmesg'] is DMESG
-
-    def test_dmesg_module_values(self):
-        """DMESG has correct name and log_subpath."""
-        assert DMESG.name == 'dmesg'
-        assert DMESG.log_subpath == 'mod_out/run/dmesg.log'
-
-    def test_top_registered(self):
-        """TOP module is in the registry."""
-        assert 'top' in EC2RL_MODULES
-        assert EC2RL_MODULES['top'] is TOP
-
-    def test_top_module_values(self):
-        """TOP has correct name, log_subpath, and extra_args."""
-        assert TOP.name == 'top'
-        assert TOP.log_subpath == 'mod_out/run/top.log'
-        assert TOP.extra_args == '--times=5'
-
-    def test_top_run_command_includes_times(self):
-        """TOP run command includes --times=5."""
-        assert TOP.run_command == 'ec2rl run --only-modules=top --times=5'
-
-
-class TestAllowedCommands:
-    """Tests for the ALLOWED_COMMANDS constant."""
-
-    def test_is_tuple(self):
-        """ALLOWED_COMMANDS should be an immutable tuple."""
-        assert isinstance(ALLOWED_COMMANDS, tuple)
-
-    def test_not_empty(self):
-        """ALLOWED_COMMANDS should contain at least one command."""
-        assert len(ALLOWED_COMMANDS) > 0
-
-    def test_contains_ec2rl_dmesg(self):
-        """ALLOWED_COMMANDS should contain the ec2rl dmesg command."""
-        assert DMESG.run_command in ALLOWED_COMMANDS
-
-    def test_ec2rl_dmesg_command_value(self):
-        """ALLOWED_COMMANDS should contain the correct ec2rl dmesg command string."""
-        assert 'ec2rl run --only-modules=dmesg' in ALLOWED_COMMANDS
+@pytest.fixture()
+def registry():
+    """A small ad-hoc module registry for validate_command tests."""
+    return {
+        'dmesg': Ec2rlModule('dmesg', 'mod_out/run/dmesg.log'),
+        'top': Ec2rlModule('top', 'mod_out/run/top.log', required_args=['times']),
+    }
 
 
 class TestValidateCommand:
-    """Tests for the validate_command function."""
+    """Tests for the validate_command function (registry-driven)."""
 
-    def test_accepts_allowed_command(self):
-        """validate_command should accept the ec2rl dmesg command."""
-        assert validate_command(DMESG.run_command) is True
+    def test_accepts_known_run_command(self, registry):
+        """Accept an ec2rl run command for a module in the registry."""
+        assert validate_command('ec2rl run --only-modules=dmesg', registry) is True
 
-    def test_accepts_log_read_command(self):
-        """validate_command should accept valid log read commands."""
+    def test_accepts_known_run_command_with_args(self, registry):
+        """Accept a run command with a declared --key=value arg."""
+        assert validate_command(
+            'ec2rl run --only-modules=top --times=5', registry
+        ) is True
+
+    def test_accepts_log_read_command(self, registry):
+        """Accept a valid log read command regardless of registry."""
         cmd = 'cat /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
-        assert validate_command(cmd) is True
+        assert validate_command(cmd, registry) is True
 
-    def test_rejects_arbitrary_cat(self):
-        """validate_command should reject arbitrary cat commands."""
-        assert validate_command('cat /etc/passwd') is False
+    def test_rejects_arbitrary_cat(self, registry):
+        """Reject arbitrary cat commands."""
+        assert validate_command('cat /etc/passwd', registry) is False
 
-    def test_rejects_unknown_command(self):
-        """validate_command should reject unknown commands."""
-        assert validate_command('rm -rf /') is False
+    def test_rejects_unknown_command(self, registry):
+        """Reject unknown commands."""
+        assert validate_command('rm -rf /', registry) is False
 
-    def test_rejects_empty_string(self):
-        """validate_command should reject empty strings."""
-        assert validate_command('') is False
+    def test_rejects_empty_string(self, registry):
+        """Reject empty strings."""
+        assert validate_command('', registry) is False
 
-    def test_rejects_partial_match(self):
-        """validate_command should reject partial matches."""
-        assert validate_command('ec2rl run') is False
-        assert validate_command('ec2rl') is False
+    def test_rejects_partial_match(self, registry):
+        """Reject partial matches."""
+        assert validate_command('ec2rl run', registry) is False
+        assert validate_command('ec2rl', registry) is False
 
-    def test_rejects_command_with_extra_args(self):
-        """validate_command should reject commands with extra arguments."""
-        assert validate_command('ec2rl run --only-modules=dmesg --extra') is False
+    def test_rejects_undeclared_arg(self, registry):
+        """Reject a run command with an arg the module didn't declare."""
+        assert validate_command(
+            'ec2rl run --only-modules=dmesg --extra', registry
+        ) is False
 
-    def test_rejects_similar_command(self):
-        """validate_command should reject similar but different commands."""
-        assert validate_command('ec2rl run --only-modules=syslog') is False
+    def test_rejects_module_absent_from_registry(self, registry):
+        """Reject a run command for a module not in the registry."""
+        assert validate_command('ec2rl run --only-modules=syslog', registry) is False

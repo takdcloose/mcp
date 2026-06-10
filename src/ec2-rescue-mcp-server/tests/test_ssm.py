@@ -31,7 +31,7 @@ class TestListSsmInstancesSync:
         """Should return merged SSM and EC2 instance data."""
         mock_ssm = MagicMock()
         mock_ec2 = MagicMock()
-        mock_session.client.side_effect = lambda svc: {'ssm': mock_ssm, 'ec2': mock_ec2}[svc]
+        mock_session.client.side_effect = lambda svc, **kw: {'ssm': mock_ssm, 'ec2': mock_ec2}[svc]
 
         mock_paginator = MagicMock()
         mock_ssm.get_paginator.return_value = mock_paginator
@@ -75,7 +75,7 @@ class TestListSsmInstancesSync:
     def test_returns_empty_when_no_instances(self, mock_session):
         """Should return empty list when no SSM instances found."""
         mock_ssm = MagicMock()
-        mock_session.client.side_effect = lambda svc: {'ssm': mock_ssm}[svc]
+        mock_session.client.side_effect = lambda svc, **kw: {'ssm': mock_ssm}[svc]
 
         mock_paginator = MagicMock()
         mock_ssm.get_paginator.return_value = mock_paginator
@@ -89,7 +89,7 @@ class TestListSsmInstancesSync:
         """Should handle instances without Name tag."""
         mock_ssm = MagicMock()
         mock_ec2 = MagicMock()
-        mock_session.client.side_effect = lambda svc: {'ssm': mock_ssm, 'ec2': mock_ec2}[svc]
+        mock_session.client.side_effect = lambda svc, **kw: {'ssm': mock_ssm, 'ec2': mock_ec2}[svc]
 
         mock_paginator = MagicMock()
         mock_ssm.get_paginator.return_value = mock_paginator
@@ -199,7 +199,7 @@ class TestRunSsmCommandSync:
             mock_session,
             'i-1234567890abcdef0',
             'ec2rl run --only-modules=dmesg',
-            timeout_seconds=60,
+            poll_deadline_seconds=60,
             poll_interval=2.0,
         )
 
@@ -222,7 +222,7 @@ class TestRunSsmCommandSync:
             mock_session,
             'i-1234567890abcdef0',
             'ec2rl run --only-modules=dmesg',
-            timeout_seconds=5,
+            poll_deadline_seconds=5,
         )
 
         assert result['status'] == 'TimedOut'
@@ -251,5 +251,5 @@ class TestAsyncWrappers:
             return_value={'status': 'Success', 'stdout': 'ok', 'stderr': '', 'exit_code': 0},
         ) as mock_sync:
             result = await run_ssm_command(mock_session, 'i-test', 'test cmd')
-            mock_sync.assert_called_once_with(mock_session, 'i-test', 'test cmd', 60, 2.0)
+            mock_sync.assert_called_once_with(mock_session, 'i-test', 'test cmd', 60, 3600, 3600, 2.0)
             assert result['status'] == 'Success'
