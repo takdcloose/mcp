@@ -39,6 +39,15 @@ Each module is exposed as `run_ec2rl_<name>`.
 
 Use `--modules=tcpdump,strace` to add specific modules beyond the defaults, or `--all` for all 209+.
 
+### Not supported
+
+These upstream [EC2 Rescue for Linux](https://github.com/awslabs/aws-ec2rescue-linux) features are intentionally not exposed by this MCP server:
+
+- **Upload** (`ec2rl upload`) — uploading results to S3 or an AWS Support URL.
+- **Bug report** (`ec2rl bug-report`) — generating a bug report bundle.
+- **Version / config** (`ec2rl version`, `version-check`, `menu-config`, `save-config`) — version checks and interactive/saved configuration.
+- **Batch runs** — modules run one at a time (`run_ec2rl_<module>`); ec2rl's bulk `run` over all modules or by class/domain is not exposed.
+
 ## Setup
 
 ### Install dependencies
