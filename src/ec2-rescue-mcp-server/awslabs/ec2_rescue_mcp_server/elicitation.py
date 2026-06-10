@@ -28,10 +28,12 @@ class _ReadAllElicitation(BaseModel):
 
     read_all: bool = Field(
         description=(
-            'If True, the server reads every file under '
-            '<output_dir>/gathered_out/<module>/ and returns their contents. '
-            'If False (or you cancel), the server returns just the file '
-            'listing and you can re-invoke the tool with specific paths.'
+            'True reads every file under <output_dir>/gathered_out/<module>/ '
+            'and returns their contents. False (the safe default; also on '
+            'cancel) does NOT end the request — the server returns the file '
+            'listing in `available_files`, and you then re-invoke the tool '
+            'with `gathered_files=[...]` to read the specific files you want '
+            '(use this to avoid binary files).'
         ),
     )
 

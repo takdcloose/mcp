@@ -233,7 +233,9 @@ async def _list_or_elicit_gathered_files(
         try:
             elicit_message = (
                 f"Module '{module.name}' produced {len(available)} files "
-                'under gathered_out/. Read them all now? '
+                'under gathered_out/. Read them ALL now? Choose No to get '
+                'the file list back and re-invoke with specific paths via '
+                '`gathered_files=[...]` (some files may be binary). '
                 f'Files: {", ".join(available)}'
             )
             elicit_result = await ctx.elicit(
