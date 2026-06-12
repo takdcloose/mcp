@@ -1,17 +1,32 @@
 # AWS Labs EC2 Rescue MCP Server
 
-An AWS Labs Model Context Protocol (MCP) server for EC2 Rescue.
-Uses AWS Systems Manager (SSM) `SendCommand` to run [EC2 Rescue Linux](https://github.com/awslabs/aws-ec2rescue-linux) diagnostic modules on EC2 instances and return results to AI tools.
+An MCP server that enables AI agents to diagnose EC2 instance issues by running [EC2 Rescue Linux](https://github.com/awslabs/aws-ec2rescue-linux) modules through AWS Systems Manager (SSM). Each `ec2rl` diagnostic module is exposed as an individual MCP tool — agents can collect logs and metrics without SSH access, arbitrary shell commands, or manual module knowledge.
+
+```
+AI Client (Claude, Kiro, etc.)
+    │  MCP (stdio / Streamable HTTP)
+    ▼
+EC2 Rescue MCP Server
+    │  boto3 (SSM SendCommand / EC2 DescribeInstances)
+    ▼
+AWS Systems Manager ──▶ EC2 instance (SSM Agent + ec2rl)
+```
+
+### Why use this server?
+
+- **No arbitrary commands** — Agents can only call registered `ec2rl` modules, not run arbitrary shell commands on the instance.
+- **No interactive shell needed** — Diagnostics run through SSM `SendCommand`, eliminating the need to open SSH or Session Manager sessions.
+- **Symptom-driven module selection** — The AI sees a structured tool list and can match modules to symptoms like "high CPU" or "kernel panic."
+- **Accessible triage** — Less-experienced engineers can ask questions like "Why is `i-0abc123` slow?" and receive AI-gathered diagnostic outputs with explanations.
+- **Credentials stay server-side** — AWS keys remain on the MCP server; clients never hold them.
 
 ## Prerequisites
 
 - Python 3.10+
 - [uv](https://docs.astral.sh/uv/) (package manager)
 - AWS credentials configured (via environment variables or AWS profile)
-- Target EC2 instances must have:
-  - SSM Agent installed and running
-  - [EC2 Rescue Linux](https://github.com/awslabs/aws-ec2rescue-linux) installed (or use the `install_ec2_rescue` tool to install it)
-  - An IAM instance profile with `AmazonSSMManagedInstanceCore` policy attached
+- Target EC2 instances must be [SSM managed nodes](https://docs.aws.amazon.com/systems-manager/latest/userguide/managed_instances.html)
+- [EC2 Rescue Linux](https://github.com/awslabs/aws-ec2rescue-linux) installed on target instances (or use the `install_ec2_rescue` tool to install it)
 
 ## Available Tools
 
@@ -48,93 +63,85 @@ These upstream [EC2 Rescue for Linux](https://github.com/awslabs/aws-ec2rescue-l
 - **Version / config** (`ec2rl version`, `version-check`, `menu-config`, `save-config`) — version checks and interactive/saved configuration.
 - **Batch runs** — modules run one at a time (`run_ec2rl_<module>`); ec2rl's bulk `run` over all modules or by class/domain is not exposed.
 
-## Setup
+## Quickstart
 
-### Install dependencies
 
-```bash
-uv sync
-```
+| Kiro | Cursor | VS Code |
+|:----:|:------:|:-------:|
+| [![Add to Kiro](https://kiro.dev/images/add-to-kiro.svg)](https://kiro.dev/launch/mcp/add?name=awslabs.ec2-rescue-mcp-server&config=%7B%22command%22%3A%20%22uvx%22%2C%20%22args%22%3A%20%5B%22awslabs.ec2-rescue-mcp-server%40latest%22%5D%2C%20%22env%22%3A%20%7B%22FASTMCP_LOG_LEVEL%22%3A%20%22ERROR%22%2C%20%22AWS_PROFILE%22%3A%20%22your-aws-profile%22%2C%20%22AWS_REGION%22%3A%20%22us-east-1%22%7D%2C%20%22disabled%22%3A%20false%2C%20%22autoApprove%22%3A%20%5B%5D%7D) [![Install MCP Server](https://cursor.com/deeplink/mcp-install-light.svg)](https://cursor.com/en/install-mcp?name=awslabs.ec2-rescue-mcp-server&config=eyJjb21tYW5kIjoidXZ4IGF3c2xhYnMuZWMyLXJlc2N1ZS1tY3Atc2VydmVyQGxhdGVzdCIsImVudiI6eyJGQVNUTUNQX0xPR19MRVZFTCI6IkVSUk9SIiwiQVdTX1BST0ZJTEUiOiJ5b3VyLWF3cy1wcm9maWxlIiwiQVdTX1JFR0lPTiI6InVzLWVhc3QtMSJ9LCJkaXNhYmxlZCI6ZmFsc2UsImF1dG9BcHByb3ZlIjpbXX0%3D) | [![Install on VS Code](https://img.shields.io/badge/Install_on-VS_Code-FF9900?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=awslabs.ec2-rescue-mcp-server&config=%7B%22command%22%3A%22uvx%20awslabs.ec2-rescue-mcp-server%40latest%22%2C%22env%22%3A%7B%22FASTMCP_LOG_LEVEL%22%3A%22ERROR%22%2C%22AWS_PROFILE%22%3A%22your-aws-profile%22%2C%22AWS_REGION%22%3A%22us-east-1%22%7D%2C%22disabled%22%3Afalse%2C%22autoApprove%22%3A%5B%5D%7D) |
 
-### Run the server directly
+You can modify the settings of your MCP client to run your local server (e.g. for Kiro, ~/.kiro/settings/mcp.json)
 
-```bash
-AWS_REGION=ap-northeast-1 AWS_PROFILE=your-profile uv run awslabs.ec2-rescue-mcp-server
-```
-
-### Claude Code (claude)
-
-Add to `.mcp.json` in your project root:
+### For Mac/Linux:
 
 ```json
 {
   "mcpServers": {
     "awslabs.ec2-rescue-mcp-server": {
-      "command": "uv",
+      "command": "uvx",
       "args": [
-        "--directory",
-        "/path/to/ec2-rescue-mcp-server",
-        "run",
-        "awslabs.ec2-rescue-mcp-server"
+        "awslabs.ec2-rescue-mcp-server@latest"
       ],
       "env": {
-        "AWS_REGION": "ap-northeast-1",
+        "FASTMCP_LOG_LEVEL": "ERROR",
         "AWS_PROFILE": "your-profile"
-      }
+        "AWS_REGION": "us-east-1",
+      },
+      "autoApprove": [],
+      "disabled": false
     }
   }
 }
 ```
 
-### Kiro
-
-Add to `.kiro/settings/mcp.json`:
+### For Windows:
 
 ```json
 {
   "mcpServers": {
     "awslabs.ec2-rescue-mcp-server": {
-      "command": "uv",
+      "command": "uvx",
       "args": [
-        "--directory",
-        "/path/to/ec2-rescue-mcp-server",
-        "run",
-        "awslabs.ec2-rescue-mcp-server"
+        "--from",
+        "awslabs.ec2-rescue-mcp-server@latest",
+        "awslabs.ec2-rescue-mcp-server.exe"
       ],
       "env": {
-        "AWS_REGION": "ap-northeast-1",
+        "FASTMCP_LOG_LEVEL": "ERROR",
         "AWS_PROFILE": "your-profile"
-      }
+        "AWS_REGION": "us-east-1",
+      },
+      "autoApprove": [],
+      "disabled": false
     }
   }
 }
 ```
 
-### Claude Desktop
-
-Add to `claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS):
+To specify a flag (for example, to enable all modules), add it to the `args` array:
 
 ```json
 {
   "mcpServers": {
-    "ec2-rescue": {
-      "command": "uv",
+    "awslabs.ec2-rescue-mcp-server": {
+      "command": "uvx",
       "args": [
-        "--directory",
-        "/path/to/ec2-rescue-mcp-server",
-        "run",
-        "awslabs.ec2-rescue-mcp-server"
+        "awslabs.ec2-rescue-mcp-server@latest",
+        "-all"
       ],
       "env": {
-        "AWS_REGION": "ap-northeast-1",
+        "FASTMCP_LOG_LEVEL": "ERROR",
         "AWS_PROFILE": "your-profile"
-      }
+        "AWS_REGION": "us-east-1",
+      },
+      "autoApprove": [],
+      "disabled": false
     }
   }
 }
 ```
 
-> **Note:** Replace `/path/to/ec2-rescue-mcp-server` with the absolute path to this repository, and `your-profile` with your AWS profile name.
+> **Note:** Replace `your-profile` with your AWS profile name and `us-east-1` with your target region.
 
 ## IAM Policy (MCP Server Side)
 
@@ -188,8 +195,6 @@ The IAM principal running this MCP server needs the following minimum permission
 }
 ```
 
-> **Note:** Replace `ACCOUNT_ID` with your AWS account ID. The `managed-instance/*` resource covers hybrid-activated nodes (`mi-*`). To restrict further, narrow instance resources to specific IDs or use tag-based conditions. The `SSMAutomationInstall` statement is only required if you use the `install_ec2_rescue` tool.
-
 ## Authentication
 
 AWS credentials are passed via environment variables. Supported options:
@@ -208,7 +213,7 @@ AWS credentials are passed via environment variables. Supported options:
 | `--modules NAME,...` | (none) | Additional module names beyond the default 32. |
 | `--remediate` | off | Register remediation modules (openssh, rebuildinitrd, etc.). |
 | `--allow-install` | off | Allow `install_ec2_rescue` without elicitation consent. |
-| `--allow-perfimpact` | off | Permit perfimpact modules (tcpdump, perf, strace). Denied by default. |
+| `--allow-perfimpact` | off | Permit perfimpact modules (tcpdump, perf, strace). Off by default — only a human operator can enable this at server startup; agents cannot turn it on. |
 | `--mod-dir PATH` | bundled `mod.d/` | Override module YAML directory. |
 | `--transport {stdio,streamable-http}` | `stdio` | MCP transport. |
 | `--host HOST` | `127.0.0.1` | Bind host (streamable-http only). |
@@ -242,14 +247,3 @@ uv run pytest tests/ -v
 uv run pytest --cov --cov-branch --cov-report=term-missing
 ```
 
-## Elicitation (User Consent)
-
-The server uses [MCP elicitation](https://modelcontextprotocol.io/docs/concepts/elicitation) to request user confirmation before:
-
-- **Installing EC2 Rescue** (`install_ec2_rescue`) — bypass with `--allow-install`
-- **Fetching large output** (messages, dmesg) — suggests `journal` with `--since`/`--until` instead
-- **Omitting grep_keys** (kernelconfig, sysctl, dpkgpackages, rpmpackages) — warns about large output
-
-If your MCP client does not support elicitation, use the CLI bypass flags listed above.
-
-> **Note on agentic clients:** MCP elicitation is **not** a reliable safety control when the client is an agent (e.g. Claude Code), because the agent can auto-answer the consent prompt without a human in the loop. For this reason **perfimpact modules** (tcpdump, perf, strace) are **fail-closed**: they are denied unless an operator explicitly starts the server with `--allow-perfimpact`. This is a startup flag precisely so the permission is an operator decision the agent cannot grant itself — not a runtime prompt.
