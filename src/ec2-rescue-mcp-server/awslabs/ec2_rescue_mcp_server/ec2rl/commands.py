@@ -41,6 +41,20 @@ _ARG_VALUE_RE = re.compile(r'^[A-Za-z0-9._/\-]+$')
 # Allowed module names and arg keys: alphanumeric, hyphen, underscore
 _IDENTIFIER_RE = re.compile(r'^[A-Za-z0-9_\-]+$')
 
+# journalctl --since=/--until= args (journal, kernelpanic, hungtasks, etc.).
+_TIME_ARG_KEYS = frozenset({'since', 'until'})
+# systemd.time charset: default set plus ':' and '+' for single-token forms
+# like 13:00:00 and +1h. No space — ec2rl runs `$CMD` unquoted, so a value
+# with a space (e.g. "2012-10-30 18:17:16") word-splits and loses the time.
+_TIME_ARG_VALUE_RE = re.compile(r'^[A-Za-z0-9:+._/\-]+$')
+
+
+def validate_arg_value(key: str, value: str) -> bool:
+    """True if ``value`` is allowed for argument ``key`` (time args get ':'/'+')."""
+    if key in _TIME_ARG_KEYS:
+        return bool(_TIME_ARG_VALUE_RE.match(value))
+    return bool(_ARG_VALUE_RE.match(value))
+
 _TIMESTAMP_RE = r'\d{4}-\d{2}-\d{2}T[\d_.]+'
 _OUTPUT_DIR_RE = re.compile(
     rf'^{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}$'
@@ -50,14 +64,13 @@ _MOD_OUT_LOG_RE = re.compile(
     rf'^cat {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
     r'/mod_out/run/[A-Za-z0-9_\-]+\.log$'
 )
-# `gathered_out/<module>/<rel-path>` form, used by modules that write via
-# $EC2RL_GATHEREDDIR. Each path segment must start with an alnum/_ char so
-# `..` and dotfiles are rejected; subsequent chars also allow `.` and `-`
-# so filenames like `messages.1` and `cloud-init.log` work.
+# gathered path segment: alnum/_/./- with leading dot allowed (e.g.
+# `.placeholder`); the lookahead rejects `.`/`..` so traversal stays blocked.
+_GATHERED_SEG = r'(?:/(?!\.\.?(?:/|$))[A-Za-z0-9_.][A-Za-z0-9_.\-]*)+'
 _GATHERED_READ_CMD_RE = re.compile(
     rf'^cat {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
     r'/gathered_out/[A-Za-z0-9_\-]+'
-    r'(?:/[A-Za-z0-9_][A-Za-z0-9_.\-]*)+$'
+    rf'{_GATHERED_SEG}$'
 )
 # `find <gathered_out>/<module> -type f` for listing gathered files when the
 # caller hasn't curated GATHEREDDIR_FILES and hasn't supplied `files`.
@@ -75,7 +88,7 @@ _GATHERED_GREP_CMD_RE = re.compile(
     r"\)=' "
     rf'{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
     r'/gathered_out/[A-Za-z0-9_\-]+'
-    r"(?:/[A-Za-z0-9_][A-Za-z0-9_.\-]*)+$"
+    rf'{_GATHERED_SEG}$'
 )
 # `grep -vE '^[[:space:]]*#' <gathered file>` — strips comment lines
 # (leading-whitespace `#`) before returning the file. Used for config
@@ -85,7 +98,7 @@ _GATHERED_NOCOMMENT_CMD_RE = re.compile(
     r"^grep -vE '\^\[\[:space:\]\]\*#' "
     rf'{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
     r'/gathered_out/[A-Za-z0-9_\-]+'
-    r"(?:/[A-Za-z0-9_][A-Za-z0-9_.\-]*)+$"
+    rf'{_GATHERED_SEG}$'
 )
 # `grep -hE '^(K1|K2|...)[ \t]*=' <mod_out log>` — sysctl-style grep on
 # collect-class module logs where keys contain dots (e.g. net.ipv4.ip_forward).
@@ -227,6 +240,6 @@ def validate_command(
         key, _, value = kv.partition('=')
         if key not in allowed_keys:
             return False
-        if not _ARG_VALUE_RE.match(value):
+        if not validate_arg_value(key, value):
             return False
     return True

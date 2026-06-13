@@ -20,6 +20,7 @@ import inspect
 import json
 from awslabs.ec2_rescue_mcp_server import ec2rl as ec2rl_module
 from awslabs.ec2_rescue_mcp_server.ec2rl import Ec2rlModule, validate_command
+from awslabs.ec2_rescue_mcp_server.ec2rl.commands import _TIME_ARG_KEYS
 from awslabs.ec2_rescue_mcp_server.ec2rl.grep_strategy import (
     GatheredKvGrep,
     LogFixedGrep,
@@ -196,8 +197,18 @@ async def _discover_gathered_files(
     if listing['status'] == 'Success':
         for line in listing['stdout'].splitlines():
             line = line.strip()
-            if line.startswith(base):
-                available.append(line[len(base):])
+            if not line.startswith(base):
+                continue
+            rel = line[len(base):]
+            # Skip names that fail the path allowlist so one bad file can't
+            # abort the whole read.
+            if not module.is_valid_gathered_relpath(output_dir, rel):
+                logger.warning(
+                    f'Skipping unreadable gathered file for {module.name!r}: '
+                    f'{rel!r} (failed path allowlist)'
+                )
+                continue
+            available.append(rel)
     return available
 
 
@@ -222,7 +233,9 @@ async def _list_or_elicit_gathered_files(
         try:
             elicit_message = (
                 f"Module '{module.name}' produced {len(available)} files "
-                'under gathered_out/. Read them all now? '
+                'under gathered_out/. Read them ALL now? Choose No to get '
+                'the file list back and re-invoke with specific paths via '
+                '`gathered_files=[...]` (some files may be binary). '
                 f'Files: {", ".join(available)}'
             )
             elicit_result = await ctx.elicit(
@@ -353,9 +366,19 @@ async def _grep_gathered_files(
 ) -> str:
     """Run ``grep -hE '^(KEY1|KEY2|...)='`` per gathered file and return matches.
 
-    When ``files`` is None, asks the user via elicitation (or returns a
-    listing) so they can pick which files to grep.
+    When ``files`` is None, falls back to the curated :data:`GATHEREDDIR_FILES`
+    entry. If that is empty (e.g. ``kernelconfig``), discovers files under
+    ``gathered_out/<module>/`` via ``find`` and greps them all — keeping the
+    response small via ``grep_keys`` regardless of which files match.
     """
+    if not files:
+        curated = ec2rl_module.GATHEREDDIR_FILES.get(module.name, ())
+        if curated and curated != ('*',):
+            files = list(curated)
+        else:
+            files = await _discover_gathered_files(
+                instance_id, module, output_dir
+            )
     if not files:
         return await _list_or_elicit_gathered_files(
             ctx, instance_id, module, output_dir, run_result
@@ -531,7 +554,7 @@ async def _run_ec2rl_module(
             return precheck
 
     if module.perfimpact:
-        consent = await _perfimpact_consent_gate(ctx, instance_id, module)
+        consent = _perfimpact_consent_gate(instance_id, module)
         if consent is not None:
             return consent
 
@@ -678,8 +701,8 @@ def _build_tool_docstring(module: Ec2rlModule) -> str:
     if module.perfimpact:
         lines.append(
             'NOTE: This module may impact running processes (packet capture, '
-            'syscall tracing, or CPU profiling). The MCP server will ask the '
-            'user for explicit consent before running.'
+            'syscall tracing, or CPU profiling). It is disabled unless the '
+            'server was started with --allow-perfimpact.'
         )
         lines.append('')
     lines.append('Returns JSON with the module name, run status, and log content.')
@@ -728,16 +751,27 @@ def _make_tool_func(module: Ec2rlModule):
         )
 
     for arg in module.optional_args:
+        if arg in _TIME_ARG_KEYS:
+            description = (
+                f'Optional argument --{arg}= for ec2rl module '
+                f'{module.name!r}. A single-token systemd.time value with NO '
+                'spaces: relative ("-48hr", "+1h"), keyword ("today", "now"), '
+                'date ("2026-06-06") or time ("13:00:00"). The spaced form '
+                '"2026-06-06 13:00:00" is NOT supported; use a relative form '
+                'instead. Omit to skip.'
+            )
+        else:
+            description = (
+                f'Optional argument --{arg}= for ec2rl module '
+                f'{module.name!r}. Omit to skip.'
+            )
         params.append(
             inspect.Parameter(
                 arg,
                 inspect.Parameter.KEYWORD_ONLY,
                 default=Field(
                     default=None,
-                    description=(
-                        f'Optional argument --{arg}= for ec2rl module '
-                        f'{module.name!r}. Omit to skip.'
-                    ),
+                    description=description,
                 ),
                 annotation=Optional[str],
             )

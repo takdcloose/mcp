@@ -73,15 +73,15 @@ READ_LOG_ON_NONZERO_EXIT_MODULES: frozenset[str] = frozenset({
 #   directory, then cats them all (e.g. cron, sysctlconf where the file
 #   set is small but the names aren't statically known).
 #
-# A module that is intentionally absent from this dict (gcore,
+# A module that is intentionally absent from this dict (atophistory, gcore,
 # nvidiabugreport, perf, sarhistory, sosreport, supportconfig, tcpdump)
 # falls through to the default `mod_out/run/<name>.log` flow — used for
-# modules whose gathered_out artifact is binary (core dump, perf.data,
-# .tar.xz archive, .pcap, sysstat binary, etc.) and can't be cat'd
-# safely into a JSON response.
+# modules whose gathered_out artifact is binary (atop history, core dump,
+# perf.data, .tar.xz archive, .pcap, sysstat binary, etc.) and can't be
+# cat'd safely into a JSON response. Only the module's run-log (its stdout
+# notification) is returned.
 GATHEREDDIR_FILES: dict[str, tuple[str, ...]] = {
     'aptlog': ('history.log', 'dpkg.log'),
-    'atophistory': (),
     'cloudinitlog': ('cloud-init.log', 'cloud-init-output.log'),
     'collectlhistory': (),
     'cron': ('*',),

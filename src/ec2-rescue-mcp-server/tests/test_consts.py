@@ -16,10 +16,11 @@
 
 from awslabs.ec2_rescue_mcp_server.consts import (
     DEFAULT_AWS_REGION,
-    SERVER_INSTRUCTIONS,
     SERVER_NAME,
-    SSM_COMMAND_TIMEOUT_SECONDS,
+    SSM_DELIVERY_TIMEOUT_SECONDS,
     SSM_DOCUMENT_NAME,
+    SSM_EXECUTION_TIMEOUT_SECONDS,
+    SSM_POLL_DEADLINE_SECONDS,
     SSM_POLL_INTERVAL_SECONDS,
 )
 
@@ -31,9 +32,11 @@ class TestSsmConstants:
         """Document name is AWS-RunShellScript."""
         assert SSM_DOCUMENT_NAME == 'AWS-RunShellScript'
 
-    def test_timeout_is_positive(self):
-        """Command timeout is positive."""
-        assert SSM_COMMAND_TIMEOUT_SECONDS > 0
+    def test_timeouts_are_positive(self):
+        """SSM delivery/execution/poll timeouts are positive."""
+        assert SSM_DELIVERY_TIMEOUT_SECONDS > 0
+        assert SSM_EXECUTION_TIMEOUT_SECONDS > 0
+        assert SSM_POLL_DEADLINE_SECONDS > 0
 
     def test_poll_interval_is_positive(self):
         """Poll interval is positive."""
@@ -50,13 +53,3 @@ class TestServerMetadata:
     def test_default_region(self):
         """Default region is us-east-1."""
         assert DEFAULT_AWS_REGION == 'us-east-1'
-
-    def test_instructions_not_empty(self):
-        """Server instructions are not empty."""
-        assert len(SERVER_INSTRUCTIONS.strip()) > 0
-
-    def test_instructions_mentions_tools(self):
-        """Server instructions reference all tool names."""
-        assert 'list_instances' in SERVER_INSTRUCTIONS
-        assert 'run_ec2rl_dmesg' in SERVER_INSTRUCTIONS
-        assert 'run_ec2rl_top' in SERVER_INSTRUCTIONS

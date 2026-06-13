@@ -16,13 +16,30 @@
 
 import json
 import pytest
-from awslabs.ec2_rescue_mcp_server.server import (
-    list_allowed_commands,
-    list_instances,
-    run_ec2rl_dmesg,
-    run_ec2rl_top,
-)
+from awslabs.ec2_rescue_mcp_server import ec2rl as ec2rl_module
+from awslabs.ec2_rescue_mcp_server.ec2rl import Ec2rlModule
+from awslabs.ec2_rescue_mcp_server.execution import _run_ec2rl_module
+from awslabs.ec2_rescue_mcp_server.server import list_instances
 from unittest.mock import patch
+
+
+# 'top' declares no `software`, so it skips the software precheck — keeping the
+# run_ssm_command call count predictable (run + log-read = 2).
+TOP = Ec2rlModule('top', 'mod_out/run/top.log', required_args=['times'])
+
+
+@pytest.fixture()
+def registered_top():
+    """Register TOP in the global registry so validate_command accepts it.
+
+    _run_ec2rl_module validates the built command against EC2RL_MODULES, which
+    is empty until modules are loaded; snapshot and restore around the test.
+    """
+    prev = dict(ec2rl_module.EC2RL_MODULES)
+    ec2rl_module.EC2RL_MODULES['top'] = TOP
+    yield
+    ec2rl_module.EC2RL_MODULES.clear()
+    ec2rl_module.EC2RL_MODULES.update(prev)
 
 
 class TestListInstances:
@@ -74,8 +91,12 @@ class TestListInstances:
         mock_ctx.error.assert_called_once()
 
 
-class TestRunEc2rlDmesg:
-    """Tests for the run_ec2rl_dmesg tool."""
+class TestRunEc2rlModule:
+    """Tests for _run_ec2rl_module (the impl behind dynamic run_ec2rl_* tools).
+
+    Uses the 'top' module (no `software` field → no software precheck), so the
+    SSM call sequence is exactly: ec2rl run, then cat the log.
+    """
 
     EC2RL_RUN_STDOUT = (
         '-------------[Output  Logs]-------------\n'
@@ -87,120 +108,27 @@ class TestRunEc2rlDmesg:
     )
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.server.run_ssm_command')
-    async def test_successful_run(self, mock_run, mock_ctx):
+    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    async def test_successful_run(self, mock_run, mock_ctx, registered_top):
         """Should run ec2rl then cat the log and return log content."""
         mock_run.side_effect = [
-            # First call: ec2rl run
             {
                 'status': 'Success',
                 'stdout': self.EC2RL_RUN_STDOUT,
                 'stderr': '',
                 'exit_code': 0,
             },
-            # Second call: cat log file
             {
                 'status': 'Success',
-                'stdout': '[  0.000000] Linux version 5.10.0\n[  1.234567] EXT4-fs mounted',
+                'stdout': 'top - 12:34:56 up 1 day, load average: 0.00, 0.01, 0.05',
                 'stderr': '',
                 'exit_code': 0,
             },
         ]
 
-        result = await run_ec2rl_dmesg(mock_ctx, instance_id='i-1234567890abcdef0')
-        data = json.loads(result)
-
-        assert data['instance_id'] == 'i-1234567890abcdef0'
-        assert data['module'] == 'dmesg'
-        assert data['status'] == 'Success'
-        assert data['output_dir'] == '/var/tmp/ec2rl/2026-04-14T02_50_34.749027'
-        assert 'Linux version' in data['log_content']
-        assert mock_run.call_count == 2
-
-    @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.server.run_ssm_command')
-    async def test_failed_run(self, mock_run, mock_ctx):
-        """Should return JSON with failure details without reading log."""
-        mock_run.return_value = {
-            'status': 'Failed',
-            'stdout': '',
-            'stderr': 'ec2rl not found',
-            'exit_code': 127,
-        }
-
-        result = await run_ec2rl_dmesg(mock_ctx, instance_id='i-1234567890abcdef0')
-        data = json.loads(result)
-
-        assert data['status'] == 'Failed'
-        assert data['stderr'] == 'ec2rl not found'
-        assert data['log_content'] == ''
-        assert mock_run.call_count == 1
-
-    @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.server.run_ssm_command')
-    async def test_parse_output_dir_failure(self, mock_run, mock_ctx):
-        """Should return raw stdout when output dir cannot be parsed."""
-        mock_run.return_value = {
-            'status': 'Success',
-            'stdout': 'unexpected output format',
-            'stderr': '',
-            'exit_code': 0,
-        }
-
-        result = await run_ec2rl_dmesg(mock_ctx, instance_id='i-1234567890abcdef0')
-        data = json.loads(result)
-
-        assert data['status'] == 'Success'
-        assert data['log_content'] == ''
-        assert 'raw_stdout' in data
-        assert mock_run.call_count == 1
-
-    @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.server.run_ssm_command')
-    async def test_handles_exception(self, mock_run, mock_ctx):
-        """Should call ctx.error and re-raise on exception."""
-        mock_run.side_effect = Exception('SSM error')
-
-        with pytest.raises(Exception, match='SSM error'):
-            await run_ec2rl_dmesg(mock_ctx, instance_id='i-1234567890abcdef0')
-
-        mock_ctx.error.assert_called()
-
-
-class TestRunEc2rlTop:
-    """Tests for the run_ec2rl_top tool."""
-
-    EC2RL_RUN_STDOUT = (
-        '-------------[Output  Logs]-------------\n'
-        '\n'
-        'The output logs are located in:\n'
-        '/var/tmp/ec2rl/2026-04-14T02_50_34.749027\n'
-        '\n'
-        '--------------[Module Run]--------------\n'
-    )
-
-    @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.server.run_ssm_command')
-    async def test_successful_run(self, mock_run, mock_ctx):
-        """Should run ec2rl then cat the log and return log content."""
-        mock_run.side_effect = [
-            # First call: ec2rl run
-            {
-                'status': 'Success',
-                'stdout': self.EC2RL_RUN_STDOUT,
-                'stderr': '',
-                'exit_code': 0,
-            },
-            # Second call: cat log file
-            {
-                'status': 'Success',
-                'stdout': 'top - 12:34:56 up 1 day,  2:34,  1 user,  load average: 0.00, 0.01, 0.05',
-                'stderr': '',
-                'exit_code': 0,
-            },
-        ]
-
-        result = await run_ec2rl_top(mock_ctx, instance_id='i-1234567890abcdef0')
+        result = await _run_ec2rl_module(
+            mock_ctx, 'i-1234567890abcdef0', TOP, args={'times': '1'}
+        )
         data = json.loads(result)
 
         assert data['instance_id'] == 'i-1234567890abcdef0'
@@ -211,8 +139,8 @@ class TestRunEc2rlTop:
         assert mock_run.call_count == 2
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.server.run_ssm_command')
-    async def test_failed_run(self, mock_run, mock_ctx):
+    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    async def test_failed_run(self, mock_run, mock_ctx, registered_top):
         """Should return JSON with failure details without reading log."""
         mock_run.return_value = {
             'status': 'Failed',
@@ -221,7 +149,9 @@ class TestRunEc2rlTop:
             'exit_code': 127,
         }
 
-        result = await run_ec2rl_top(mock_ctx, instance_id='i-1234567890abcdef0')
+        result = await _run_ec2rl_module(
+            mock_ctx, 'i-1234567890abcdef0', TOP, args={'times': '1'}
+        )
         data = json.loads(result)
 
         assert data['status'] == 'Failed'
@@ -230,8 +160,8 @@ class TestRunEc2rlTop:
         assert mock_run.call_count == 1
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.server.run_ssm_command')
-    async def test_parse_output_dir_failure(self, mock_run, mock_ctx):
+    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    async def test_parse_output_dir_failure(self, mock_run, mock_ctx, registered_top):
         """Should return raw stdout when output dir cannot be parsed."""
         mock_run.return_value = {
             'status': 'Success',
@@ -240,7 +170,9 @@ class TestRunEc2rlTop:
             'exit_code': 0,
         }
 
-        result = await run_ec2rl_top(mock_ctx, instance_id='i-1234567890abcdef0')
+        result = await _run_ec2rl_module(
+            mock_ctx, 'i-1234567890abcdef0', TOP, args={'times': '1'}
+        )
         data = json.loads(result)
 
         assert data['status'] == 'Success'
@@ -249,34 +181,12 @@ class TestRunEc2rlTop:
         assert mock_run.call_count == 1
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.server.run_ssm_command')
-    async def test_handles_exception(self, mock_run, mock_ctx):
-        """Should call ctx.error and re-raise on exception."""
+    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    async def test_propagates_exception(self, mock_run, mock_ctx, registered_top):
+        """Should propagate an exception raised during SSM execution."""
         mock_run.side_effect = Exception('SSM error')
 
         with pytest.raises(Exception, match='SSM error'):
-            await run_ec2rl_top(mock_ctx, instance_id='i-1234567890abcdef0')
-
-        mock_ctx.error.assert_called()
-
-
-class TestListAllowedCommands:
-    """Tests for the list_allowed_commands tool."""
-
-    @pytest.mark.asyncio
-    async def test_returns_commands(self, mock_ctx):
-        """Should return JSON with allowed commands."""
-        result = await list_allowed_commands(mock_ctx)
-        data = json.loads(result)
-
-        assert 'allowed_commands' in data
-        assert 'ec2rl run --only-modules=dmesg' in data['allowed_commands']
-        assert 'ec2rl run --only-modules=top --times=5' in data['allowed_commands']
-
-    @pytest.mark.asyncio
-    async def test_returns_non_empty_list(self, mock_ctx):
-        """Should return at least one command."""
-        result = await list_allowed_commands(mock_ctx)
-        data = json.loads(result)
-
-        assert len(data['allowed_commands']) > 0
+            await _run_ec2rl_module(
+                mock_ctx, 'i-1234567890abcdef0', TOP, args={'times': '1'}
+            )
