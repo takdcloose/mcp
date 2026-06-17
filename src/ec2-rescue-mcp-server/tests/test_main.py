@@ -86,8 +86,8 @@ class TestParseArgs:
 
     def test_host_port_parsed(self):
         """--host / --port populate the namespace; port is coerced to int."""
-        args = _parse_args(['--host', '0.0.0.0', '--port', '9000'])
-        assert args.host == '0.0.0.0'
+        args = _parse_args(['--host', '192.168.1.100', '--port', '9000'])
+        assert args.host == '192.168.1.100'
         assert args.port == 9000
 
     def test_invalid_transport_rejected(self):
