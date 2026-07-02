@@ -20,7 +20,7 @@ from awslabs.ec2_rescue_mcp_server import ec2rl as ec2rl_module
 from awslabs.ec2_rescue_mcp_server.ec2rl import Ec2rlModule
 from awslabs.ec2_rescue_mcp_server.execution import _run_ec2rl_module
 from awslabs.ec2_rescue_mcp_server.server import list_instances
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 # 'top' declares no `software`, so it skips the software precheck — keeping the
@@ -190,3 +190,193 @@ class TestRunEc2rlModule:
             await _run_ec2rl_module(
                 mock_ctx, 'i-1234567890abcdef0', TOP, args={'times': '1'}
             )
+
+
+# 'dmesg' is a non-gathered append-only log module in TAIL_MODULES.
+DMESG = Ec2rlModule('dmesg', 'mod_out/run/dmesg.log')
+# 'yumlog' is a gathered append-only log module with a curated single file.
+YUMLOG = Ec2rlModule('yumlog', 'mod_out/run/yumlog.log')
+# 'messages' is a gathered append-only module with NO curated file set, so it
+# discovers files via `find` before reading them.
+MESSAGES = Ec2rlModule('messages', 'mod_out/run/messages.log')
+# 'aptlog' is a gathered append-only module with MULTIPLE curated files.
+APTLOG = Ec2rlModule('aptlog', 'mod_out/run/aptlog.log')
+
+
+@pytest.fixture()
+def registered_tail_modules():
+    """Register the tail modules used in tests so validate_command accepts them."""
+    prev = dict(ec2rl_module.EC2RL_MODULES)
+    ec2rl_module.EC2RL_MODULES['dmesg'] = DMESG
+    ec2rl_module.EC2RL_MODULES['yumlog'] = YUMLOG
+    ec2rl_module.EC2RL_MODULES['messages'] = MESSAGES
+    ec2rl_module.EC2RL_MODULES['aptlog'] = APTLOG
+    yield
+    ec2rl_module.EC2RL_MODULES.clear()
+    ec2rl_module.EC2RL_MODULES.update(prev)
+
+
+class TestTailModules:
+    """Tests for the tail behavior of append-only log modules.
+
+    Append-only modules (messages, dmesg, yumlog) return only the last N lines
+    by default. ``tail_lines`` overrides the count; ``tail_lines=0`` requests
+    the full log (which re-enables the large-output elicitation gate for
+    modules that have one).
+    """
+
+    EC2RL_RUN_STDOUT = TestRunEc2rlModule.EC2RL_RUN_STDOUT
+
+    @pytest.mark.asyncio
+    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    async def test_dmesg_default_tail(self, mock_run, mock_ctx, registered_tail_modules):
+        """Default dmesg run tails the last 100 lines of the mod_out log."""
+        mock_run.side_effect = [
+            {'status': 'Success', 'stdout': self.EC2RL_RUN_STDOUT, 'stderr': '', 'exit_code': 0},
+            {'status': 'Success', 'stdout': 'last 100 kernel lines', 'stderr': '', 'exit_code': 0},
+        ]
+
+        result = await _run_ec2rl_module(mock_ctx, 'i-1234567890abcdef0', DMESG)
+        data = json.loads(result)
+
+        assert data['status'] == 'Success'
+        assert data['tail_lines'] == 100
+        assert data['log_content'] == 'last 100 kernel lines'
+        # The second SSM call must be a `tail -n 100` of the dmesg log.
+        read_cmd = mock_run.call_args_list[1].args[2]
+        assert read_cmd.startswith('tail -n 100 ')
+        assert read_cmd.endswith('/mod_out/run/dmesg.log')
+
+    @pytest.mark.asyncio
+    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    async def test_dmesg_custom_tail(self, mock_run, mock_ctx, registered_tail_modules):
+        """A positive tail_lines overrides the module default."""
+        mock_run.side_effect = [
+            {'status': 'Success', 'stdout': self.EC2RL_RUN_STDOUT, 'stderr': '', 'exit_code': 0},
+            {'status': 'Success', 'stdout': 'last 25 lines', 'stderr': '', 'exit_code': 0},
+        ]
+
+        result = await _run_ec2rl_module(
+            mock_ctx, 'i-1234567890abcdef0', DMESG, tail_lines=25
+        )
+        data = json.loads(result)
+
+        assert data['tail_lines'] == 25
+        read_cmd = mock_run.call_args_list[1].args[2]
+        assert read_cmd.startswith('tail -n 25 ')
+
+    @pytest.mark.asyncio
+    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    async def test_dmesg_full_output_triggers_gate(self, mock_run, mock_ctx, registered_tail_modules):
+        """tail_lines=0 requests the full log and re-enables the large-output gate.
+
+        The gate elicits confirmation; when the client accepts, the module
+        cats the whole log (no tail_lines in the response).
+        """
+        accept = MagicMock()
+        accept.action = 'accept'
+        accept.data = MagicMock(confirm=True)
+        mock_ctx.elicit = AsyncMock(return_value=accept)
+
+        mock_run.side_effect = [
+            {'status': 'Success', 'stdout': self.EC2RL_RUN_STDOUT, 'stderr': '', 'exit_code': 0},
+            {'status': 'Success', 'stdout': 'full kernel ring buffer', 'stderr': '', 'exit_code': 0},
+        ]
+
+        result = await _run_ec2rl_module(
+            mock_ctx, 'i-1234567890abcdef0', DMESG, tail_lines=0
+        )
+        data = json.loads(result)
+
+        assert data['status'] == 'Success'
+        assert 'tail_lines' not in data
+        mock_ctx.elicit.assert_awaited_once()
+        read_cmd = mock_run.call_args_list[1].args[2]
+        assert read_cmd.startswith('cat ')
+
+    @pytest.mark.asyncio
+    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    async def test_dmesg_full_output_declined_aborts(self, mock_run, mock_ctx, registered_tail_modules):
+        """tail_lines=0 with a declined gate aborts before reading the log."""
+        decline = MagicMock()
+        decline.action = 'decline'
+        decline.data = None
+        mock_ctx.elicit = AsyncMock(return_value=decline)
+
+        result = await _run_ec2rl_module(
+            mock_ctx, 'i-1234567890abcdef0', DMESG, tail_lines=0
+        )
+        data = json.loads(result)
+
+        assert data['status'] == 'Aborted'
+        # The gate runs before ec2rl executes, so no SSM command is issued.
+        assert mock_run.call_count == 0
+
+    @pytest.mark.asyncio
+    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    async def test_yumlog_default_tail(self, mock_run, mock_ctx, registered_tail_modules):
+        """Gathered yumlog defaults to `tail -n 100` on its curated file."""
+        mock_run.side_effect = [
+            {'status': 'Success', 'stdout': self.EC2RL_RUN_STDOUT, 'stderr': '', 'exit_code': 0},
+            {'status': 'Success', 'stdout': 'last 100 yum.log lines', 'stderr': '', 'exit_code': 0},
+        ]
+
+        result = await _run_ec2rl_module(mock_ctx, 'i-1234567890abcdef0', YUMLOG)
+        data = json.loads(result)
+
+        assert data['status'] == 'Success'
+        assert data['tail_lines'] == 100
+        assert 'yum.log' in data['files']
+        read_cmd = mock_run.call_args_list[1].args[2]
+        assert read_cmd.startswith('tail -n 100 ')
+        assert read_cmd.endswith('/gathered_out/yumlog/yum.log')
+
+    @pytest.mark.asyncio
+    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    async def test_messages_discovers_then_tails(self, mock_run, mock_ctx, registered_tail_modules):
+        """Gathered messages (no curated files) discovers via find, then tails.
+
+        The tail path bypasses the read-all elicitation, so ctx.elicit is
+        never called even though the file set was discovered dynamically.
+        """
+        mock_ctx.elicit = AsyncMock()
+        base = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/gathered_out/messages/'
+        mock_run.side_effect = [
+            # ec2rl run
+            {'status': 'Success', 'stdout': self.EC2RL_RUN_STDOUT, 'stderr': '', 'exit_code': 0},
+            # find listing of gathered files
+            {'status': 'Success', 'stdout': f'{base}messages\n{base}messages-1', 'stderr': '', 'exit_code': 0},
+            # tail of each discovered file
+            {'status': 'Success', 'stdout': 'recent messages', 'stderr': '', 'exit_code': 0},
+            {'status': 'Success', 'stdout': 'recent messages-1', 'stderr': '', 'exit_code': 0},
+        ]
+
+        result = await _run_ec2rl_module(mock_ctx, 'i-1234567890abcdef0', MESSAGES)
+        data = json.loads(result)
+
+        assert data['status'] == 'Success'
+        assert data['tail_lines'] == 100
+        assert set(data['files']) == {'messages', 'messages-1'}
+        mock_ctx.elicit.assert_not_called()
+        # The two file reads (calls 3 and 4) must be tail commands.
+        for call in mock_run.call_args_list[2:]:
+            assert call.args[2].startswith('tail -n 100 ')
+
+    @pytest.mark.asyncio
+    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    async def test_aptlog_tails_all_curated_files(self, mock_run, mock_ctx, registered_tail_modules):
+        """Gathered aptlog tails each of its multiple curated files."""
+        mock_run.side_effect = [
+            {'status': 'Success', 'stdout': self.EC2RL_RUN_STDOUT, 'stderr': '', 'exit_code': 0},
+            {'status': 'Success', 'stdout': 'recent history.log', 'stderr': '', 'exit_code': 0},
+            {'status': 'Success', 'stdout': 'recent dpkg.log', 'stderr': '', 'exit_code': 0},
+        ]
+
+        result = await _run_ec2rl_module(mock_ctx, 'i-1234567890abcdef0', APTLOG)
+        data = json.loads(result)
+
+        assert data['status'] == 'Success'
+        assert data['tail_lines'] == 100
+        assert set(data['files']) == {'history.log', 'dpkg.log'}
+        for call in mock_run.call_args_list[1:]:
+            assert call.args[2].startswith('tail -n 100 ')

@@ -24,9 +24,11 @@ from awslabs.ec2_rescue_mcp_server.ec2rl.commands import (
     _GATHERED_LIST_CMD_RE,
     _GATHERED_NOCOMMENT_CMD_RE,
     _GATHERED_READ_CMD_RE,
+    _GATHERED_TAIL_CMD_RE,
     _IDENTIFIER_RE,
     _LOG_FIXED_GREP_CMD_RE,
     _LOG_SYSCTL_GREP_CMD_RE,
+    _MOD_OUT_TAIL_RE,
     _OUTPUT_DIR_RE,
     _PERFIMPACT_FLAG,
     validate_arg_value,
@@ -173,18 +175,31 @@ class Ec2rlModule:
             )
         return f'which {self.software}'
 
-    def log_read_command(self, output_dir: str) -> str:
-        """Return ``cat <output_dir>/<log_subpath>``; rejects malformed dirs."""
+    def log_read_command(self, output_dir: str, tail_lines: int | None = None) -> str:
+        """Return ``cat <output_dir>/<log_subpath>``, or ``tail -n N`` of it.
+
+        When ``tail_lines`` is a positive int, only the last N lines are read
+        (append-only logs like ``dmesg``); otherwise the whole file is cat-ed.
+        The generated command is re-validated against its allowlist.
+        """
         if not _OUTPUT_DIR_RE.match(output_dir):
             raise ValueError(f'Invalid ec2rl output directory: {output_dir}')
-        return f'cat {output_dir}/{self.log_subpath}'
+        if tail_lines is None:
+            return f'cat {output_dir}/{self.log_subpath}'
+        if not isinstance(tail_lines, int) or tail_lines < 1:
+            raise ValueError(f'Invalid tail line count: {tail_lines!r}')
+        cmd = f'tail -n {tail_lines} {output_dir}/{self.log_subpath}'
+        if not _MOD_OUT_TAIL_RE.match(cmd):
+            raise ValueError(f'Invalid log tail command for module {self.name!r}')
+        return cmd
 
     def gathered_read_commands(
         self,
         output_dir: str,
         files: list[str] | None = None,
+        tail_lines: int | None = None,
     ) -> list[tuple[str, str]]:
-        """Return [(relative_path, cat_command), ...] for this module's gathered files.
+        """Return [(relative_path, read_command), ...] for this module's gathered files.
 
         Args:
             output_dir: ec2rl run output directory (e.g.
@@ -192,23 +207,32 @@ class Ec2rlModule:
             files: When provided, use these relative paths instead of the
                 curated :data:`GATHEREDDIR_FILES` entry. Useful when the
                 caller (AI) discovered file names via :meth:`gathered_list_command`.
+            tail_lines: When a positive int, read only the last N lines of each
+                file via ``tail -n N`` (append-only logs like ``messages``,
+                ``yumlog``); otherwise each file is cat-ed in full.
 
         Returns empty list when neither ``files`` nor :data:`GATHEREDDIR_FILES`
         contains paths. Validates ``output_dir`` against :data:`_OUTPUT_DIR_RE`
-        and re-checks each generated command against :data:`_GATHERED_READ_CMD_RE`.
+        and re-checks each generated command against its allowlist.
 
         Raises:
-            ValueError: If ``output_dir`` is malformed or any relative path
-                produces a command that fails allowlist validation
-                (e.g. contains ``..`` or other unsafe characters).
+            ValueError: If ``output_dir`` is malformed, ``tail_lines`` is not a
+                positive int, or any relative path produces a command that
+                fails allowlist validation (e.g. contains ``..``).
         """
         if not _OUTPUT_DIR_RE.match(output_dir):
             raise ValueError(f'Invalid ec2rl output directory: {output_dir}')
+        if tail_lines is not None and (not isinstance(tail_lines, int) or tail_lines < 1):
+            raise ValueError(f'Invalid tail line count: {tail_lines!r}')
         rels = files if files is not None else list(GATHEREDDIR_FILES.get(self.name, ()))
         cmds: list[tuple[str, str]] = []
         for rel in rels:
-            cmd = f'cat {output_dir}/gathered_out/{self.name}/{rel}'
-            if not _GATHERED_READ_CMD_RE.match(cmd):
+            path = f'{output_dir}/gathered_out/{self.name}/{rel}'
+            if tail_lines is None:
+                cmd, pattern = f'cat {path}', _GATHERED_READ_CMD_RE
+            else:
+                cmd, pattern = f'tail -n {tail_lines} {path}', _GATHERED_TAIL_CMD_RE
+            if not pattern.match(cmd):
                 raise ValueError(
                     f'Invalid gathered file path for module {self.name!r}: {rel!r}'
                 )

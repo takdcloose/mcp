@@ -33,6 +33,7 @@ from awslabs.ec2_rescue_mcp_server.ec2rl.registry import (
     LARGE_OUTPUT_MODULES,
     READ_LOG_ON_NONZERO_EXIT_MODULES,
     STRIP_COMMENTS_MODULES,
+    TAIL_MODULES,
     is_gathered_module,
 )
 
@@ -49,6 +50,7 @@ __all__ = [
     'LogSysctlGrep',
     'READ_LOG_ON_NONZERO_EXIT_MODULES',
     'STRIP_COMMENTS_MODULES',
+    'TAIL_MODULES',
     'is_gathered_module',
     'validate_command',
     'validate_log_read_command',

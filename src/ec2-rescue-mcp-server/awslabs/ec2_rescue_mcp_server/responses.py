@@ -74,6 +74,9 @@ class ModuleResponse(BaseModel):
     # grep-keys flow.
     grep_keys: Optional[list[str]] = None
 
+    # tail flow: trailing lines returned per file; absent when full output.
+    tail_lines: Optional[int] = None
+
     def as_json(self) -> str:
         """Serialise to JSON, dropping unset fields to keep wire shape stable."""
         return self.model_dump_json(exclude_none=True)

@@ -54,6 +54,13 @@ Each module is exposed as `run_ec2rl_<name>`.
 
 Use `--modules=tcpdump,strace` to add specific modules beyond the defaults, or `--all` for all 209+.
 
+### Output size controls
+
+Some modules produce large logs. To keep responses within the context window, the server bounds their output by default:
+
+- **Append-only logs** (`messages`, `dmesg`, `yumlog`, `aptlog`, `cloudinitlog`, `httpdlogs`, `nginxlogs`, `mysqldlog`, `systemsmanager`, `workspacelogs`, `zypperlog`) return only the last **100 lines** (most recent entries). Pass `tail_lines=<N>` to change the count, or `tail_lines=0` to fetch the full log. (`journal` is excluded — use its `--since`/`--until` args instead.)
+- **Key-filtered modules** (`kernelconfig`, `sysctl`, `dpkgpackages`, `rpmpackages`) accept `grep_keys=[...]` to return only matching lines.
+
 ### Not supported
 
 These upstream [EC2 Rescue for Linux](https://github.com/awslabs/aws-ec2rescue-linux) features are intentionally not exposed by this MCP server:

@@ -30,6 +30,7 @@ from awslabs.ec2_rescue_mcp_server.ec2rl.registry import (
     GREP_KEYS_MODULES,
     LARGE_OUTPUT_MODULES,
     STRIP_COMMENTS_MODULES,
+    TAIL_MODULES,
 )
 from awslabs.ec2_rescue_mcp_server.elicitation import (
     _fetch_all_elicitation_gate,
@@ -218,6 +219,7 @@ async def _list_or_elicit_gathered_files(
     module: Ec2rlModule,
     output_dir: str,
     run_result: dict,
+    tail_lines: int | None = None,
 ) -> str:
     """Discover gathered files, then either read them all or return a listing.
 
@@ -226,8 +228,18 @@ async def _list_or_elicit_gathered_files(
     (decline / cancel / unsupported client / elicitation error), returns the
     listing JSON so the AI can ask the user out-of-band and re-invoke the
     tool with explicit ``gathered_files=[...]``.
+
+    When ``tail_lines`` is set, the output is already bounded to the last N
+    lines per file, so the read-all elicitation is skipped and the discovered
+    files are tailed directly (append-only logs like ``messages``).
     """
     available = await _discover_gathered_files(instance_id, module, output_dir)
+
+    if available and tail_lines is not None:
+        return await _read_gathered_files(
+            ctx, instance_id, module, output_dir, run_result,
+            files=available, tail_lines=tail_lines,
+        )
 
     if available:
         try:
@@ -288,6 +300,7 @@ async def _read_gathered_files(
     output_dir: str,
     run_result: dict,
     files: list[str] | None = None,
+    tail_lines: int | None = None,
 ) -> str:
     """Read curated/requested files under ``gathered_out/<module>/``.
 
@@ -301,6 +314,11 @@ async def _read_gathered_files(
        decline/cancel/unsupported, return a listing payload for the AI to
        relay to the user out-of-band.
 
+    When ``tail_lines`` is a positive int, each file is read via
+    ``tail -n <tail_lines>`` instead of ``cat`` so only its most recent lines
+    are returned (append-only logs like ``messages``, ``yumlog``). Comment
+    stripping and tailing are mutually exclusive; tailing takes precedence.
+
     Files that don't exist (cat returns non-Success) are recorded in
     ``missing_files`` instead of failing the call.
     """
@@ -311,15 +329,15 @@ async def _read_gathered_files(
                 instance_id, module, output_dir
             )
 
-    cmds = module.gathered_read_commands(output_dir, files=files)
+    # Tailing takes precedence over comment stripping (mutually exclusive).
+    cmds = module.gathered_read_commands(output_dir, files=files, tail_lines=tail_lines)
     if not cmds:
         return await _list_or_elicit_gathered_files(
-            ctx, instance_id, module, output_dir, run_result
+            ctx, instance_id, module, output_dir, run_result,
+            tail_lines=tail_lines,
         )
 
-    # For comment-stripping modules, replace each cat with grep -vE.
-    strip_comments = module.name in STRIP_COMMENTS_MODULES
-    if strip_comments:
+    if tail_lines is None and module.name in STRIP_COMMENTS_MODULES:
         cmds = [
             (rel_path, module.gathered_nocomment_command(output_dir, rel_path))
             for rel_path, _ in cmds
@@ -352,6 +370,7 @@ async def _read_gathered_files(
         files=out_files,
         missing_files=missing,
         log_content='\n\n'.join(log_chunks),
+        tail_lines=tail_lines,
     ).as_json()
 
 
@@ -530,6 +549,7 @@ async def _run_ec2rl_module(
     args: dict[str, str] | None = None,
     gathered_files: list[str] | None = None,
     grep_keys: list[str] | None = None,
+    tail_lines: int | None = None,
 ) -> str:
     """Run an ec2rl module via SSM and return JSON with status + log content.
 
@@ -541,12 +561,28 @@ async def _run_ec2rl_module(
     For modules listed in :data:`GREP_KEYS_MODULES` (e.g. ``kernelconfig``),
     ``grep_keys`` is required and gathered files are filtered by those
     keys via ``grep -hE '^(K1|K2|...)='`` before returning.
+
+    For modules listed in :data:`TAIL_MODULES` (append-only logs like
+    ``messages``, ``dmesg``, ``yumlog``), only the last N lines are returned
+    by default so recent events surface without flooding the context window.
+    ``tail_lines`` overrides that count: ``None`` uses the module default,
+    a positive int sets a custom count, and ``0`` requests the full output.
     """
     args = args or {}
     logger.info(
         f'Running ec2rl {module.name} on instance {instance_id} with args={args} '
-        f'gathered_files={gathered_files} grep_keys={grep_keys}'
+        f'gathered_files={gathered_files} grep_keys={grep_keys} '
+        f'tail_lines={tail_lines}'
     )
+
+    # Effective tail count: None (default) → module default; >0 → caller value;
+    # <=0 → full output (stays None). Non-tail modules ignore tail_lines.
+    effective_tail: int | None = None
+    if module.name in TAIL_MODULES:
+        if tail_lines is None:
+            effective_tail = TAIL_MODULES[module.name]
+        elif tail_lines > 0:
+            effective_tail = tail_lines
 
     if module.software or module.package:
         precheck = await _software_precheck(instance_id, module)
@@ -558,7 +594,8 @@ async def _run_ec2rl_module(
         if consent is not None:
             return consent
 
-    if module.name in LARGE_OUTPUT_MODULES:
+    # Large-output gate applies only to full output; a tail is already bounded.
+    if module.name in LARGE_OUTPUT_MODULES and effective_tail is None:
         abort = await _large_output_elicitation_gate(
             ctx, instance_id, module, LARGE_OUTPUT_MODULES[module.name]
         )
@@ -659,14 +696,16 @@ async def _run_ec2rl_module(
 
     if ec2rl_module.is_gathered_module(module.name):
         return await _read_gathered_files(
-            ctx, instance_id, module, output_dir, result, files=gathered_files
+            ctx, instance_id, module, output_dir, result,
+            files=gathered_files, tail_lines=effective_tail,
         )
 
-    cat_cmd = module.log_read_command(output_dir)
-    if not validate_command(cat_cmd, ec2rl_module.EC2RL_MODULES):
+    # Non-gathered mod_out log: tail when in effect (e.g. dmesg), else cat.
+    read_cmd = module.log_read_command(output_dir, tail_lines=effective_tail)
+    if not validate_command(read_cmd, ec2rl_module.EC2RL_MODULES):
         raise ValueError('Log read command validation failed')
 
-    log_result = await run_ssm_command(_get_session(), instance_id, cat_cmd)
+    log_result = await run_ssm_command(_get_session(), instance_id, read_cmd)
 
     return ModuleResponse(
         instance_id=instance_id,
@@ -678,6 +717,7 @@ async def _run_ec2rl_module(
         log_read_error=(
             log_result['stderr'] if log_result['status'] != 'Success' else None
         ),
+        tail_lines=effective_tail,
         detected_issue=True if result['status'] != 'Success' else None,
     ).as_json()
 
@@ -703,6 +743,14 @@ def _build_tool_docstring(module: Ec2rlModule) -> str:
             'NOTE: This module may impact running processes (packet capture, '
             'syscall tracing, or CPU profiling). It is disabled unless the '
             'server was started with --allow-perfimpact.'
+        )
+        lines.append('')
+    if module.name in TAIL_MODULES:
+        lines.append(
+            f'NOTE: This log is append-only and can be large. Only the last '
+            f'{TAIL_MODULES[module.name]} lines are returned by default; use '
+            'the `tail_lines` parameter to change the count or pass 0 for the '
+            'full log.'
         )
         lines.append('')
     lines.append('Returns JSON with the module name, run status, and log content.')
@@ -780,6 +828,30 @@ def _make_tool_func(module: Ec2rlModule):
     is_gathered = ec2rl_module.is_gathered_module(module.name)
     strategy = GREP_KEYS_MODULES.get(module.name)
     requires_grep_keys = strategy is not None
+    supports_tail = module.name in TAIL_MODULES
+
+    if supports_tail:
+        default_tail = TAIL_MODULES[module.name]
+        params.append(
+            inspect.Parameter(
+                'tail_lines',
+                inspect.Parameter.KEYWORD_ONLY,
+                default=Field(
+                    default=None,
+                    description=(
+                        f"This module's log is append-only and can be very "
+                        f'large. By default only the last {default_tail} lines '
+                        '(most recent entries) are returned. Set a positive '
+                        'integer to return a different number of trailing '
+                        'lines, or 0 to return the FULL log (can be very large '
+                        '— avoid unless the recent lines are insufficient). '
+                        'Omit to use the default.'
+                    ),
+                    ge=0,
+                ),
+                annotation=Optional[int],
+            )
+        )
 
     if is_gathered and not isinstance(strategy, (LogFixedGrep, LogSysctlGrep)):
         params.append(
@@ -880,6 +952,12 @@ def _make_tool_func(module: Ec2rlModule):
             if not isinstance(value, FieldInfo) and value is not None:
                 grep_keys = list(value)
 
+        tail_lines: int | None = None
+        if supports_tail:
+            value = bound.arguments.get('tail_lines')
+            if not isinstance(value, FieldInfo) and value is not None:
+                tail_lines = int(value)
+
         try:
             mod = ec2rl_module.EC2RL_MODULES[module_name]
             return await _run_ec2rl_module(
@@ -889,6 +967,7 @@ def _make_tool_func(module: Ec2rlModule):
                 call_args,
                 gathered_files=gathered_files,
                 grep_keys=grep_keys,
+                tail_lines=tail_lines,
             )
         except Exception as e:
             logger.error(f'Error running ec2rl {module_name} on {instance_id}: {str(e)}')

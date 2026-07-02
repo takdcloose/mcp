@@ -87,6 +87,60 @@ class TestEc2rlModule:
         with pytest.raises(ValueError):
             module.log_read_command('/var/tmp/ec2rl/../../../etc')
 
+    def test_log_read_command_tail(self):
+        """Generate tail command for an append-only mod_out log."""
+        module = Ec2rlModule('dmesg', 'mod_out/run/dmesg.log')
+        cmd = module.log_read_command(
+            '/var/tmp/ec2rl/2026-04-14T02_50_34.749027', tail_lines=100
+        )
+        assert cmd == (
+            'tail -n 100 '
+            '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        )
+
+    def test_log_read_command_rejects_non_positive_tail(self):
+        """Reject zero or negative tail line counts."""
+        module = Ec2rlModule('dmesg', 'mod_out/run/dmesg.log')
+        for bad in (0, -1):
+            with pytest.raises(ValueError, match='Invalid tail line count'):
+                module.log_read_command(
+                    '/var/tmp/ec2rl/2026-04-14T02_50_34.749027', tail_lines=bad
+                )
+
+    def test_gathered_read_commands_tail(self):
+        """Generate tail commands for append-only gathered files."""
+        module = Ec2rlModule('yumlog', 'mod_out/run/yumlog.log')
+        cmds = module.gathered_read_commands(
+            '/var/tmp/ec2rl/2026-04-14T02_50_34.749027',
+            files=['yum.log'],
+            tail_lines=100,
+        )
+        assert cmds == [(
+            'yum.log',
+            'tail -n 100 '
+            '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/gathered_out/yumlog/yum.log',
+        )]
+
+    def test_gathered_read_commands_tail_rejects_traversal(self):
+        """Reject path traversal in the gathered tail relative path."""
+        module = Ec2rlModule('yumlog', 'mod_out/run/yumlog.log')
+        with pytest.raises(ValueError, match='Invalid gathered file path'):
+            module.gathered_read_commands(
+                '/var/tmp/ec2rl/2026-04-14T02_50_34.749027',
+                files=['../../../etc/passwd'],
+                tail_lines=100,
+            )
+
+    def test_gathered_read_commands_rejects_non_positive_tail(self):
+        """Reject zero or negative tail line counts for gathered files."""
+        module = Ec2rlModule('yumlog', 'mod_out/run/yumlog.log')
+        with pytest.raises(ValueError, match='Invalid tail line count'):
+            module.gathered_read_commands(
+                '/var/tmp/ec2rl/2026-04-14T02_50_34.749027',
+                files=['yum.log'],
+                tail_lines=0,
+            )
+
     def test_parse_output_dir(self):
         """Parse output directory from ec2rl stdout."""
         result = Ec2rlModule.parse_output_dir(EC2RL_SAMPLE_STDOUT)
@@ -125,6 +179,33 @@ class TestValidateLogReadCommand:
     def test_rejects_non_cat_command(self):
         """Reject non-cat commands even with ec2rl path."""
         assert validate_log_read_command('rm /var/tmp/ec2rl/2026-04-14T02_50_34.749027/x.log') is False
+
+    def test_accepts_mod_out_tail_command(self):
+        """Accept tail of a valid mod_out log path."""
+        cmd = 'tail -n 100 /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        assert validate_log_read_command(cmd) is True
+
+    def test_accepts_gathered_tail_command(self):
+        """Accept tail of a valid gathered file path."""
+        cmd = (
+            'tail -n 50 '
+            '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/gathered_out/yumlog/yum.log'
+        )
+        assert validate_log_read_command(cmd) is True
+
+    def test_rejects_tail_with_oversized_count(self):
+        """Reject tail commands whose line count exceeds the allowlist bound."""
+        cmd = 'tail -n 99999999 /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        assert validate_log_read_command(cmd) is False
+
+    def test_rejects_tail_with_zero_count(self):
+        """Reject tail commands with a zero line count."""
+        cmd = 'tail -n 0 /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        assert validate_log_read_command(cmd) is False
+
+    def test_rejects_tail_arbitrary_path(self):
+        """Reject tail of an arbitrary path outside ec2rl output."""
+        assert validate_log_read_command('tail -n 100 /etc/passwd') is False
 
 
 @pytest.fixture()

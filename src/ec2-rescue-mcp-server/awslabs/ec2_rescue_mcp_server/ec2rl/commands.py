@@ -64,11 +64,26 @@ _MOD_OUT_LOG_RE = re.compile(
     rf'^cat {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
     r'/mod_out/run/[A-Za-z0-9_\-]+\.log$'
 )
+# `tail -n <N>` line count: 1..9999999, bounded so an absurd count can't be
+# smuggled in.
+_TAIL_COUNT_RE = r'[1-9][0-9]{0,6}'
+# `tail -n <N> <mod_out log>` — last N lines of an append-only log (e.g. dmesg).
+_MOD_OUT_TAIL_RE = re.compile(
+    rf'^tail -n {_TAIL_COUNT_RE} {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
+    r'/mod_out/run/[A-Za-z0-9_\-]+\.log$'
+)
 # gathered path segment: alnum/_/./- with leading dot allowed (e.g.
 # `.placeholder`); the lookahead rejects `.`/`..` so traversal stays blocked.
 _GATHERED_SEG = r'(?:/(?!\.\.?(?:/|$))[A-Za-z0-9_.][A-Za-z0-9_.\-]*)+'
 _GATHERED_READ_CMD_RE = re.compile(
     rf'^cat {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
+    r'/gathered_out/[A-Za-z0-9_\-]+'
+    rf'{_GATHERED_SEG}$'
+)
+# `tail -n <N> <gathered file>` — last N lines of an append-only gathered log
+# (e.g. messages, yumlog).
+_GATHERED_TAIL_CMD_RE = re.compile(
+    rf'^tail -n {_TAIL_COUNT_RE} {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
     r'/gathered_out/[A-Za-z0-9_\-]+'
     rf'{_GATHERED_SEG}$'
 )
@@ -127,7 +142,10 @@ def validate_log_read_command(command: str) -> bool:
     Accepts:
 
     * Legacy ``cat <output_dir>/mod_out/run/<name>.log`` form.
+    * ``tail -n <N> <output_dir>/mod_out/run/<name>.log`` for append-only logs.
     * ``cat <output_dir>/gathered_out/<module>/<rel>`` for gathered modules.
+    * ``tail -n <N> <output_dir>/gathered_out/<module>/<rel>`` for append-only
+      gathered logs (e.g. messages, yumlog).
     * ``find <output_dir>/gathered_out/<module> -type f`` for listing
       gathered files when the caller wants to discover paths.
     * ``grep -hE '^(KEY1|KEY2|...)=' <gathered file>`` for extracting only
@@ -139,7 +157,9 @@ def validate_log_read_command(command: str) -> bool:
     """
     return bool(
         _MOD_OUT_LOG_RE.match(command)
+        or _MOD_OUT_TAIL_RE.match(command)
         or _GATHERED_READ_CMD_RE.match(command)
+        or _GATHERED_TAIL_CMD_RE.match(command)
         or _GATHERED_LIST_CMD_RE.match(command)
         or _GATHERED_GREP_CMD_RE.match(command)
         or _LOG_SYSCTL_GREP_CMD_RE.match(command)

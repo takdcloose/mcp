@@ -209,5 +209,25 @@ LARGE_OUTPUT_MODULES: dict[str, str] = {
 }
 
 
+# Append-only log modules: return only the last N lines by default (newest
+# entries) to avoid flooding the context. Maps module name → default line
+# count; callers override via the tool's ``tail_lines`` (0 = full output).
+# `journal` is intentionally excluded — it already bounds output via its own
+# --since/--until args.
+TAIL_MODULES: dict[str, int] = {
+    'messages': 100,
+    'dmesg': 100,
+    'yumlog': 100,
+    'aptlog': 100,
+    'cloudinitlog': 100,
+    'httpdlogs': 100,
+    'nginxlogs': 100,
+    'mysqldlog': 100,
+    'systemsmanager': 100,
+    'workspacelogs': 100,
+    'zypperlog': 100,
+}
+
+
 # --- Default module registry (empty until populated by main()) ---
 EC2RL_MODULES: dict[str, Ec2rlModule] = {}
