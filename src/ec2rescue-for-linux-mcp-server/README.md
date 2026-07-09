@@ -190,7 +190,11 @@ The IAM principal running this MCP server needs the following minimum permission
       "Sid": "SSMAutomationInstallStart",
       "Effect": "Allow",
       "Action": "ssm:StartAutomationExecution",
-      "Resource": "arn:aws:ssm:*::automation-definition/AWSSupport-InstallEC2Rescue:*"
+      "Resource": [
+        "arn:aws:ssm:*::automation-definition/AWSSupport-InstallEC2Rescue:*",
+        "arn:aws:ssm:*::document/AWSSupport-InstallEC2Rescue",
+        "arn:aws:ssm:*:ACCOUNT_ID:automation-execution/*"
+      ]
     },
     {
       "Sid": "SSMAutomationInstallDescribe",
