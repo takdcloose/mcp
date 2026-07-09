@@ -53,7 +53,7 @@ wheels = [
 ]
 
 [[package]]
-name = "awslabs-ec2-rescue-mcp-server"
+name = "awslabs-ec2rescue-for-linux-mcp-server"
 version = "0.0.0"
 source = { editable = "." }
 dependencies = [

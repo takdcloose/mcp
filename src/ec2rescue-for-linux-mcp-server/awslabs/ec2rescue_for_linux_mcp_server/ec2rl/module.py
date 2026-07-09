@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import re
-from awslabs.ec2_rescue_mcp_server.ec2rl.commands import (
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.commands import (
     _EC2RL_RUN_PREFIX,
     _EC2RL_SOFTWARE_CHECK_CMD,
     _GATHERED_GREP_CMD_RE,
@@ -33,7 +33,7 @@ from awslabs.ec2_rescue_mcp_server.ec2rl.commands import (
     _PERFIMPACT_FLAG,
     validate_arg_value,
 )
-from awslabs.ec2_rescue_mcp_server.ec2rl.registry import GATHEREDDIR_FILES
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.registry import GATHEREDDIR_FILES
 
 
 class Ec2rlModule:

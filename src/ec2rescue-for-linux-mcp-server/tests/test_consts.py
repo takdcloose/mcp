@@ -14,7 +14,7 @@
 
 """Tests for the consts module."""
 
-from awslabs.ec2_rescue_mcp_server.consts import (
+from awslabs.ec2rescue_for_linux_mcp_server.consts import (
     DEFAULT_AWS_REGION,
     SERVER_NAME,
     SSM_DELIVERY_TIMEOUT_SECONDS,
@@ -48,7 +48,7 @@ class TestServerMetadata:
 
     def test_server_name(self):
         """Server name matches expected value."""
-        assert SERVER_NAME == 'awslabs.ec2-rescue-mcp-server'
+        assert SERVER_NAME == 'awslabs.ec2rescue-for-linux-mcp-server'
 
     def test_default_region(self):
         """Default region is us-east-1."""

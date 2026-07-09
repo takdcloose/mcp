@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""AWS Systems Manager operations for EC2 Rescue MCP Server."""
+"""AWS Systems Manager operations for EC2Rescue for Linux MCP Server."""
 
 import asyncio
 import boto3
 import time
-from awslabs.ec2_rescue_mcp_server.consts import (
+from awslabs.ec2rescue_for_linux_mcp_server.consts import (
     BOTO_CONFIG,
     SSM_AUTOMATION_POLL_DEADLINE_SECONDS,
     SSM_AUTOMATION_POLL_INTERVAL_SECONDS,

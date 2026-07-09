@@ -17,12 +17,12 @@
 from __future__ import annotations
 
 import re
-from awslabs.ec2_rescue_mcp_server.ec2rl.registry import EC2RL_MODULES
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.registry import EC2RL_MODULES
 from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from awslabs.ec2_rescue_mcp_server.ec2rl.module import Ec2rlModule
+    from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.module import Ec2rlModule
 
 
 EC2RL_OUTPUT_BASE_DIR = '/var/tmp/ec2rl'

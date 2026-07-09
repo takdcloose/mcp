@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from awslabs.ec2_rescue_mcp_server.ec2rl.grep_strategy import (
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.grep_strategy import (
     GatheredKvGrep,
     GrepStrategy,
     LogFixedGrep,
@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from awslabs.ec2_rescue_mcp_server.ec2rl.module import Ec2rlModule
+    from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.module import Ec2rlModule
 
 
 # Python modules whose run() returns False (any reason: issue detected

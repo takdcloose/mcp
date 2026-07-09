@@ -16,8 +16,8 @@
 
 from __future__ import annotations
 
-from awslabs.ec2_rescue_mcp_server.ec2rl import Ec2rlModule
-from awslabs.ec2_rescue_mcp_server.responses import ModuleResponse
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl import Ec2rlModule
+from awslabs.ec2rescue_for_linux_mcp_server.responses import ModuleResponse
 from loguru import logger
 from mcp.server.fastmcp import Context
 from pydantic import BaseModel, Field
@@ -80,7 +80,7 @@ class _InstallEc2RescueConsent(BaseModel):
 # permission is a startup flag an agent cannot grant itself.
 _ALLOW_PERFIMPACT: bool = False
 
-# Whether the install_ec2_rescue tool is registered. Set by main() from
+# Whether the install_ec2rescue_linux tool is registered. Set by main() from
 # the --allow-install CLI flag. When False (default), the tool is not
 # registered and installation requires elicitation consent. When True,
 # the tool is registered and proceeds without elicitation (for MCP
@@ -230,7 +230,7 @@ async def _install_consent_gate(
     ctx: Context,
     instance_id: str,
 ) -> str | None:
-    """Gate the install_ec2_rescue tool on explicit user consent.
+    """Gate the install_ec2rescue_linux tool on explicit user consent.
 
     Returns None when the install may proceed (operator --allow-install
     flag or user accepted elicitation). Returns an Aborted JSON string
@@ -239,7 +239,7 @@ async def _install_consent_gate(
     """
     if _ALLOW_INSTALL:
         logger.info(
-            f'install_ec2_rescue on {instance_id}: consent gate skipped '
+            f'install_ec2rescue_linux on {instance_id}: consent gate skipped '
             'by --allow-install operator override.'
         )
         return None
@@ -261,7 +261,7 @@ async def _install_consent_gate(
         )
         return ModuleResponse(
             instance_id=instance_id,
-            module='install_ec2_rescue',
+            module='install_ec2rescue_linux',
             status='Aborted',
             reason='install_consent_unavailable',
             message=(
@@ -287,7 +287,7 @@ async def _install_consent_gate(
     )
     return ModuleResponse(
         instance_id=instance_id,
-        module='install_ec2_rescue',
+        module='install_ec2rescue_linux',
         status='Aborted',
         reason='install_consent_denied',
         message='User declined to install EC2 Rescue on the instance.',

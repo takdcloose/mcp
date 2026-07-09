@@ -34,7 +34,7 @@ class InstanceListResponse(BaseModel):
 
 
 class ModuleResponse(BaseModel):
-    """Response shape for every ``run_ec2rl_<module>`` tool.
+    """Response shape for every ``run_ec2rescue_linux_<module>`` tool.
 
     All fields except ``instance_id`` / ``module`` / ``status`` are optional;
     the helpers below populate only the ones that apply to the path taken
@@ -83,7 +83,7 @@ class ModuleResponse(BaseModel):
 
 
 class InstallResponse(BaseModel):
-    """Response shape for the ``install_ec2_rescue`` tool."""
+    """Response shape for the ``install_ec2rescue_linux`` tool."""
 
     instance_id: str
     status: str  # Success / Failed / TimedOut / Cancelled / Aborted

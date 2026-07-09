@@ -15,7 +15,7 @@
 """Tests for the SSM module."""
 
 import pytest
-from awslabs.ec2_rescue_mcp_server.ssm import (
+from awslabs.ec2rescue_for_linux_mcp_server.ssm import (
     _list_ssm_instances_sync,
     _run_ssm_command_sync,
     list_ssm_instances,
@@ -171,7 +171,7 @@ class TestRunSsmCommandSync:
         assert result['stderr'] == 'command not found'
         assert result['exit_code'] == 1
 
-    @patch('awslabs.ec2_rescue_mcp_server.ssm.time')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.ssm.time')
     def test_retries_on_invocation_not_exist(self, mock_time, mock_session):
         """Should retry when InvocationDoesNotExist is raised."""
         mock_ssm = MagicMock()
@@ -206,7 +206,7 @@ class TestRunSsmCommandSync:
         assert result['status'] == 'Success'
         assert mock_time.sleep.called
 
-    @patch('awslabs.ec2_rescue_mcp_server.ssm.time')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.ssm.time')
     def test_timeout(self, mock_time, mock_session):
         """Should return TimedOut when deadline is exceeded."""
         mock_ssm = MagicMock()
@@ -236,7 +236,7 @@ class TestAsyncWrappers:
     async def test_list_ssm_instances_async(self, mock_session):
         """list_ssm_instances should delegate to _list_ssm_instances_sync."""
         with patch(
-            'awslabs.ec2_rescue_mcp_server.ssm._list_ssm_instances_sync',
+            'awslabs.ec2rescue_for_linux_mcp_server.ssm._list_ssm_instances_sync',
             return_value=[{'instance_id': 'i-test'}],
         ) as mock_sync:
             result = await list_ssm_instances(mock_session)
@@ -247,7 +247,7 @@ class TestAsyncWrappers:
     async def test_run_ssm_command_async(self, mock_session):
         """run_ssm_command should delegate to _run_ssm_command_sync."""
         with patch(
-            'awslabs.ec2_rescue_mcp_server.ssm._run_ssm_command_sync',
+            'awslabs.ec2rescue_for_linux_mcp_server.ssm._run_ssm_command_sync',
             return_value={'status': 'Success', 'stdout': 'ok', 'stderr': '', 'exit_code': 0},
         ) as mock_sync:
             result = await run_ssm_command(mock_session, 'i-test', 'test cmd')

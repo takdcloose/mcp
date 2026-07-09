@@ -18,28 +18,28 @@ from __future__ import annotations
 
 import inspect
 import json
-from awslabs.ec2_rescue_mcp_server import ec2rl as ec2rl_module
-from awslabs.ec2_rescue_mcp_server.ec2rl import Ec2rlModule, validate_command
-from awslabs.ec2_rescue_mcp_server.ec2rl.commands import _TIME_ARG_KEYS
-from awslabs.ec2_rescue_mcp_server.ec2rl.grep_strategy import (
+from awslabs.ec2rescue_for_linux_mcp_server import ec2rl as ec2rl_module
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl import Ec2rlModule, validate_command
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.commands import _TIME_ARG_KEYS
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.grep_strategy import (
     GatheredKvGrep,
     LogFixedGrep,
     LogSysctlGrep,
 )
-from awslabs.ec2_rescue_mcp_server.ec2rl.registry import (
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.registry import (
     GREP_KEYS_MODULES,
     LARGE_OUTPUT_MODULES,
     STRIP_COMMENTS_MODULES,
     TAIL_MODULES,
 )
-from awslabs.ec2_rescue_mcp_server.elicitation import (
+from awslabs.ec2rescue_for_linux_mcp_server.elicitation import (
     _fetch_all_elicitation_gate,
     _large_output_elicitation_gate,
     _perfimpact_consent_gate,
     _ReadAllElicitation,
 )
-from awslabs.ec2_rescue_mcp_server.responses import ModuleResponse
-from awslabs.ec2_rescue_mcp_server.ssm import run_ssm_command
+from awslabs.ec2rescue_for_linux_mcp_server.responses import ModuleResponse
+from awslabs.ec2rescue_for_linux_mcp_server.ssm import run_ssm_command
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import Field
@@ -53,7 +53,7 @@ _INSTANCE_ID_PATTERN = r'^i-[0-9a-f]{8,17}$'
 
 def _get_session():
     """Resolve the boto3 session lazily to avoid an import cycle with server.py."""
-    from awslabs.ec2_rescue_mcp_server import server
+    from awslabs.ec2rescue_for_linux_mcp_server import server
 
     return server.session
 
@@ -554,7 +554,7 @@ async def _run_ec2rl_module(
     """Run an ec2rl module via SSM and return JSON with status + log content.
 
     For gathered modules, ``gathered_files`` (when supplied) overrides the
-    curated :data:`~awslabs.ec2_rescue_mcp_server.ec2rl.GATHEREDDIR_FILES`
+    curated :data:`~awslabs.ec2rescue_for_linux_mcp_server.ec2rl.GATHEREDDIR_FILES`
     entry. When neither is set, a listing of available files is returned
     instead.
 
@@ -974,7 +974,7 @@ def _make_tool_func(module: Ec2rlModule):
             await ctx.error(f'Error running ec2rl {module_name}: {str(e)}')
             raise
 
-    tool_func.__name__ = f'run_ec2rl_{module.name}'
+    tool_func.__name__ = f'run_ec2rescue_linux_{module.name}'
     tool_func.__qualname__ = tool_func.__name__
     tool_func.__doc__ = _build_tool_docstring(module)
     tool_func.__signature__ = sig  # type: ignore[attr-defined]
@@ -993,20 +993,21 @@ def register_ec2rl_tools(
     mcp_server: FastMCP,
     modules: dict[str, Ec2rlModule],
 ) -> list[str]:
-    """Register ``run_ec2rl_<name>`` for each module; returns the tool names.
+    """Register ``run_ec2rescue_linux_<name>`` per module; returns tool names.
 
-    Idempotent: previously-registered ``run_ec2rl_*`` tools are removed first.
+    Idempotent: previously-registered ``run_ec2rescue_linux_*`` tools are
+    removed first.
     """
     # Remove any previously-registered ec2rl tools so this function is
     # idempotent (callable again in tests or after config changes).
     tool_manager = mcp_server._tool_manager
     for existing in list(tool_manager.list_tools()):
-        if existing.name.startswith('run_ec2rl_'):
+        if existing.name.startswith('run_ec2rescue_linux_'):
             tool_manager.remove_tool(existing.name)
 
     registered: list[str] = []
     for name, module in modules.items():
-        tool_name = f'run_ec2rl_{name}'
+        tool_name = f'run_ec2rescue_linux_{name}'
         tool_func = _make_tool_func(module)
         mcp_server.tool(name=tool_name)(tool_func)
         registered.append(tool_name)
@@ -1028,7 +1029,7 @@ def build_server_instructions(modules: dict[str, Ec2rlModule]) -> str:
         by_domain.setdefault(module.domain or 'unknown', []).append(name)
 
     lines: list[str] = [
-        '# EC2 Rescue MCP Server',
+        '# EC2Rescue for Linux MCP Server',
         '',
         (
             f'Diagnose EC2 instance issues via AWS Systems Manager (SSM) using '
@@ -1041,7 +1042,7 @@ def build_server_instructions(modules: dict[str, Ec2rlModule]) -> str:
         '### list_instances',
         'List EC2 instances accessible via SSM. Use this first to get valid instance IDs.',
         '',
-        '### run_ec2rl_<module>',
+        '### run_ec2rescue_linux_<module>',
         (
             f'{total} auto-registered tools, one per ec2rl module. '
             'Each tool runs `ec2rl run --only-modules=<module>` on the target '
@@ -1074,12 +1075,12 @@ def build_server_instructions(modules: dict[str, Ec2rlModule]) -> str:
         '## Workflow',
         '1. Call `list_instances` to discover SSM-managed instances.',
         '2. Pick the target instance ID (matches pattern `i-[0-9a-f]{8,17}`).',
-        '3. Invoke a `run_ec2rl_<module>` tool with the instance ID and any '
+        '3. Invoke a `run_ec2rescue_linux_<module>` tool with the instance ID and any '
         'required/optional arguments defined by the module.',
         '4. Analyze the `log_content` field in the returned JSON.',
         '',
         '## Response Format',
-        'Each `run_ec2rl_<module>` tool returns JSON with:',
+        'Each `run_ec2rescue_linux_<module>` tool returns JSON with:',
         '- `instance_id`: Target instance.',
         '- `module`: ec2rl module name.',
         '- `status`: Success/Failed/TimedOut/Cancelled.',

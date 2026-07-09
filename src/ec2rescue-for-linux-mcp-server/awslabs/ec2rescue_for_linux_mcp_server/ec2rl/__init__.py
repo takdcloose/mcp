@@ -14,18 +14,18 @@
 
 """ec2rl package facade — re-exports the public symbols used by server.py and tests."""
 
-from awslabs.ec2_rescue_mcp_server.ec2rl.commands import (
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.commands import (
     validate_command,
     validate_log_read_command,
 )
-from awslabs.ec2_rescue_mcp_server.ec2rl.grep_strategy import (
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.grep_strategy import (
     GatheredKvGrep,
     GrepStrategy,
     LogFixedGrep,
     LogSysctlGrep,
 )
-from awslabs.ec2_rescue_mcp_server.ec2rl.module import Ec2rlModule
-from awslabs.ec2_rescue_mcp_server.ec2rl.registry import (
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.module import Ec2rlModule
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.registry import (
     DEFAULT_MODULES,
     EC2RL_MODULES,
     GATHEREDDIR_FILES,

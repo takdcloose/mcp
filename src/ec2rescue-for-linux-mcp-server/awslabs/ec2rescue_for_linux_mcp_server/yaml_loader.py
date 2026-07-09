@@ -16,7 +16,7 @@
 
 import os
 import yaml
-from awslabs.ec2_rescue_mcp_server.ec2rl import Ec2rlModule
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl import Ec2rlModule
 from loguru import logger
 
 

@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Constants for the EC2 Rescue MCP Server."""
+"""Constants for the EC2Rescue for Linux MCP Server."""
 
-from awslabs.ec2_rescue_mcp_server import __version__
+from awslabs.ec2rescue_for_linux_mcp_server import __version__
 from botocore.config import Config
 
 
@@ -26,11 +26,11 @@ SSM_POLL_DEADLINE_SECONDS: int = 3600  # client gives up polling after this
 SSM_POLL_INTERVAL_SECONDS: float = 2.0
 
 DEFAULT_AWS_REGION: str = 'us-east-1'
-SERVER_NAME: str = 'awslabs.ec2-rescue-mcp-server'
+SERVER_NAME: str = 'awslabs.ec2rescue-for-linux-mcp-server'
 DEFAULT_MOD_DIR: str = 'mod.d'  # bundled mod.d/, resolved by server.main()
 
 BOTO_CONFIG: Config = Config(
-    user_agent_extra=f'md/awslabs#mcp#ec2-rescue-mcp-server#{__version__}'
+    user_agent_extra=f'md/awslabs#mcp#ec2rescue-for-linux-mcp-server#{__version__}'
 )
 
 # SSM Automation — AWSSupport-InstallEC2Rescue

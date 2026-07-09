@@ -65,7 +65,7 @@ const sidebars: SidebarsConfig = {
             "servers/aws-support-mcp-server",
             "servers/aws-network-mcp-server",
             "servers/aws-for-sap-management-mcp-server",
-            "servers/ec2-rescue-mcp-server",
+            "servers/ec2rescue-for-linux-mcp-server",
           ],
         },
         {

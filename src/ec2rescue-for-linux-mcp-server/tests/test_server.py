@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the EC2 Rescue MCP Server tools."""
+"""Tests for the EC2Rescue for Linux MCP Server tools."""
 
 import json
 import pytest
-from awslabs.ec2_rescue_mcp_server import ec2rl as ec2rl_module
-from awslabs.ec2_rescue_mcp_server.ec2rl import Ec2rlModule
-from awslabs.ec2_rescue_mcp_server.execution import _run_ec2rl_module
-from awslabs.ec2_rescue_mcp_server.server import list_instances
+from awslabs.ec2rescue_for_linux_mcp_server import ec2rl as ec2rl_module
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl import Ec2rlModule
+from awslabs.ec2rescue_for_linux_mcp_server.execution import _run_ec2rl_module
+from awslabs.ec2rescue_for_linux_mcp_server.server import list_instances
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -46,7 +46,7 @@ class TestListInstances:
     """Tests for the list_instances tool."""
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.server.list_ssm_instances')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.server.list_ssm_instances')
     async def test_returns_instances(self, mock_list, mock_ctx):
         """Should return JSON with instances."""
         mock_list.return_value = [
@@ -68,7 +68,7 @@ class TestListInstances:
         assert data['instances'][0]['name'] == 'test-instance'
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.server.list_ssm_instances')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.server.list_ssm_instances')
     async def test_returns_empty_list(self, mock_list, mock_ctx):
         """Should return empty instances with message when none found."""
         mock_list.return_value = []
@@ -80,7 +80,7 @@ class TestListInstances:
         assert 'message' in data
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.server.list_ssm_instances')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.server.list_ssm_instances')
     async def test_handles_exception(self, mock_list, mock_ctx):
         """Should call ctx.error and re-raise on exception."""
         mock_list.side_effect = Exception('AWS error')
@@ -92,7 +92,7 @@ class TestListInstances:
 
 
 class TestRunEc2rlModule:
-    """Tests for _run_ec2rl_module (the impl behind dynamic run_ec2rl_* tools).
+    """Tests for _run_ec2rl_module (the impl behind dynamic run_ec2rescue_linux_* tools).
 
     Uses the 'top' module (no `software` field → no software precheck), so the
     SSM call sequence is exactly: ec2rl run, then cat the log.
@@ -108,7 +108,7 @@ class TestRunEc2rlModule:
     )
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_successful_run(self, mock_run, mock_ctx, registered_top):
         """Should run ec2rl then cat the log and return log content."""
         mock_run.side_effect = [
@@ -139,7 +139,7 @@ class TestRunEc2rlModule:
         assert mock_run.call_count == 2
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_failed_run(self, mock_run, mock_ctx, registered_top):
         """Should return JSON with failure details without reading log."""
         mock_run.return_value = {
@@ -160,7 +160,7 @@ class TestRunEc2rlModule:
         assert mock_run.call_count == 1
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_parse_output_dir_failure(self, mock_run, mock_ctx, registered_top):
         """Should return raw stdout when output dir cannot be parsed."""
         mock_run.return_value = {
@@ -181,7 +181,7 @@ class TestRunEc2rlModule:
         assert mock_run.call_count == 1
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_propagates_exception(self, mock_run, mock_ctx, registered_top):
         """Should propagate an exception raised during SSM execution."""
         mock_run.side_effect = Exception('SSM error')
@@ -228,7 +228,7 @@ class TestTailModules:
     EC2RL_RUN_STDOUT = TestRunEc2rlModule.EC2RL_RUN_STDOUT
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_dmesg_default_tail(self, mock_run, mock_ctx, registered_tail_modules):
         """Default dmesg run tails the last 100 lines of the mod_out log."""
         mock_run.side_effect = [
@@ -248,7 +248,7 @@ class TestTailModules:
         assert read_cmd.endswith('/mod_out/run/dmesg.log')
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_dmesg_custom_tail(self, mock_run, mock_ctx, registered_tail_modules):
         """A positive tail_lines overrides the module default."""
         mock_run.side_effect = [
@@ -266,7 +266,7 @@ class TestTailModules:
         assert read_cmd.startswith('tail -n 25 ')
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_dmesg_full_output_triggers_gate(self, mock_run, mock_ctx, registered_tail_modules):
         """tail_lines=0 requests the full log and re-enables the large-output gate.
 
@@ -295,7 +295,7 @@ class TestTailModules:
         assert read_cmd.startswith('cat ')
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_dmesg_full_output_declined_aborts(self, mock_run, mock_ctx, registered_tail_modules):
         """tail_lines=0 with a declined gate aborts before reading the log."""
         decline = MagicMock()
@@ -313,7 +313,7 @@ class TestTailModules:
         assert mock_run.call_count == 0
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_yumlog_default_tail(self, mock_run, mock_ctx, registered_tail_modules):
         """Gathered yumlog defaults to `tail -n 100` on its curated file."""
         mock_run.side_effect = [
@@ -332,7 +332,7 @@ class TestTailModules:
         assert read_cmd.endswith('/gathered_out/yumlog/yum.log')
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_messages_discovers_then_tails(self, mock_run, mock_ctx, registered_tail_modules):
         """Gathered messages (no curated files) discovers via find, then tails.
 
@@ -363,7 +363,7 @@ class TestTailModules:
             assert call.args[2].startswith('tail -n 100 ')
 
     @pytest.mark.asyncio
-    @patch('awslabs.ec2_rescue_mcp_server.execution.run_ssm_command')
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_aptlog_tails_all_curated_files(self, mock_run, mock_ctx, registered_tail_modules):
         """Gathered aptlog tails each of its multiple curated files."""
         mock_run.side_effect = [

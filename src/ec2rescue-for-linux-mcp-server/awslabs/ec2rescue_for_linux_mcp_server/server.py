@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""awslabs EC2 Rescue MCP Server entry point.
+"""awslabs EC2Rescue for Linux MCP Server entry point.
 
 Holds the FastMCP instance, the ``list_instances`` tool, the boto3 session,
 and the ``main()`` CLI dispatcher. All other helpers live in dedicated
@@ -24,17 +24,17 @@ import argparse
 import boto3
 import os
 import sys
-from awslabs.ec2_rescue_mcp_server import ec2rl as ec2rl_module
-from awslabs.ec2_rescue_mcp_server import elicitation as _elicitation
-from awslabs.ec2_rescue_mcp_server.consts import (
+from awslabs.ec2rescue_for_linux_mcp_server import ec2rl as ec2rl_module
+from awslabs.ec2rescue_for_linux_mcp_server import elicitation as _elicitation
+from awslabs.ec2rescue_for_linux_mcp_server.consts import (
     DEFAULT_AWS_REGION,
     DEFAULT_MOD_DIR,
     SERVER_NAME,
 )
-from awslabs.ec2_rescue_mcp_server.elicitation import _install_consent_gate
-from awslabs.ec2_rescue_mcp_server.responses import InstallResponse, InstanceListResponse
-from awslabs.ec2_rescue_mcp_server.ssm import list_ssm_instances, run_install_ec2_rescue
-from awslabs.ec2_rescue_mcp_server.yaml_loader import load_modules_from_yaml_dir
+from awslabs.ec2rescue_for_linux_mcp_server.elicitation import _install_consent_gate
+from awslabs.ec2rescue_for_linux_mcp_server.responses import InstallResponse, InstanceListResponse
+from awslabs.ec2rescue_for_linux_mcp_server.ssm import list_ssm_instances, run_install_ec2_rescue
+from awslabs.ec2rescue_for_linux_mcp_server.yaml_loader import load_modules_from_yaml_dir
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import Field
@@ -62,7 +62,7 @@ except Exception as e:
 
 mcp = FastMCP(
     SERVER_NAME,
-    instructions='EC2 Rescue MCP Server (ec2rl modules loaded at startup).',
+    instructions='EC2Rescue for Linux MCP Server (ec2rl modules loaded at startup).',
     dependencies=[
         'boto3',
         'loguru',
@@ -93,8 +93,8 @@ async def list_instances(
         raise
 
 
-@mcp.tool(name='install_ec2_rescue')
-async def install_ec2_rescue(
+@mcp.tool(name='install_ec2rescue_linux')
+async def install_ec2rescue_linux(
     ctx: Context,
     instance_id: str = Field(
         ...,
@@ -115,7 +115,7 @@ async def install_ec2_rescue(
     ## What This Does
     Runs the AWS SSM Automation document `AWSSupport-InstallEC2Rescue`,
     which downloads and installs the EC2 Rescue for Linux toolset on the
-    target instance. This is a prerequisite for running any `run_ec2rl_*`
+    target instance. This is a prerequisite for running any `run_ec2rescue_linux_*`
     diagnostic tool.
 
     ## Response Format
@@ -151,12 +151,12 @@ async def install_ec2_rescue(
 
 
 # Back-compat re-exports — tests import these names from
-# ``awslabs.ec2_rescue_mcp_server.server``. The real definitions live in
+# ``awslabs.ec2rescue_for_linux_mcp_server.server``. The real definitions live in
 # :mod:`.execution` / :mod:`.elicitation`.
-from awslabs.ec2_rescue_mcp_server.elicitation import (  # noqa: E402, F401
+from awslabs.ec2rescue_for_linux_mcp_server.elicitation import (  # noqa: E402, F401
     _ReadAllElicitation,
 )
-from awslabs.ec2_rescue_mcp_server.execution import (  # noqa: E402, F401
+from awslabs.ec2rescue_for_linux_mcp_server.execution import (  # noqa: E402, F401
     _run_ec2rl_module,
     _software_precheck,
     build_server_instructions,
@@ -167,7 +167,7 @@ from awslabs.ec2_rescue_mcp_server.execution import (  # noqa: E402, F401
 def _default_mod_dir() -> str:
     """Absolute path to the bundled ``mod.d/``; walks up from this package."""
     pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    # awslabs/ec2_rescue_mcp_server -> repo root (two levels up)
+    # awslabs/ec2rescue_for_linux_mcp_server -> repo root (two levels up)
     candidates = [
         os.path.join(pkg_dir, 'mod.d'),
         os.path.join(os.path.dirname(pkg_dir), 'mod.d'),
@@ -182,7 +182,7 @@ def _default_mod_dir() -> str:
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse CLI arguments for the MCP server."""
     parser = argparse.ArgumentParser(
-        prog='awslabs.ec2-rescue-mcp-server',
+        prog='awslabs.ec2rescue-for-linux-mcp-server',
         description='MCP server that exposes EC2 Rescue Linux modules as MCP tools.',
     )
     parser.add_argument(
@@ -260,7 +260,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         '--allow-install',
         action='store_true',
         help=(
-            'Allow the install_ec2_rescue tool to proceed without '
+            'Allow the install_ec2rescue_linux tool to proceed without '
             'elicitation consent. Use this when the MCP client does not '
             'support elicitation and you want to permit EC2 Rescue '
             'installation via AWSSupport-InstallEC2Rescue.'

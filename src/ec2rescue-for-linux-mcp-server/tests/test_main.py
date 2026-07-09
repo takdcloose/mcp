@@ -18,8 +18,8 @@ import inspect
 import os
 import pytest
 import sys
-from awslabs.ec2_rescue_mcp_server import ec2rl as ec2rl_module
-from awslabs.ec2_rescue_mcp_server.server import (
+from awslabs.ec2rescue_for_linux_mcp_server import ec2rl as ec2rl_module
+from awslabs.ec2rescue_for_linux_mcp_server.server import (
     _default_mod_dir,
     _parse_args,
     main,
@@ -184,16 +184,16 @@ class TestMain:
     def test_registers_mcp_tools_for_modules(
         self, sample_mod_dir, restore_registry
     ):
-        """main() registers run_ec2rl_<name> tools only for selected modules."""
+        """main() registers run_ec2rescue_linux_<name> tools only for selected modules."""
         argv = ['prog', '--mod-dir', sample_mod_dir]
         with patch.object(sys, 'argv', argv), patch.object(mcp, 'run'):
             main()
 
         registered = {t.name for t in mcp._tool_manager.list_tools()}
-        assert 'run_ec2rl_dmesg' in registered
-        assert 'run_ec2rl_top' in registered
-        assert 'run_ec2rl_tcpdump' not in registered  # not in DEFAULT
-        assert 'run_ec2rl_openssh' not in registered
+        assert 'run_ec2rescue_linux_dmesg' in registered
+        assert 'run_ec2rescue_linux_top' in registered
+        assert 'run_ec2rescue_linux_tcpdump' not in registered  # not in DEFAULT
+        assert 'run_ec2rescue_linux_openssh' not in registered
 
     def test_dynamic_instructions_swapped_in(
         self, sample_mod_dir, restore_registry
@@ -205,7 +205,7 @@ class TestMain:
 
         text = mcp.instructions
         assert text is not None
-        assert '# EC2 Rescue MCP Server' in text
+        assert '# EC2Rescue for Linux MCP Server' in text
         assert 'ec2rl diagnostic modules' in text
 
 
@@ -268,7 +268,7 @@ class TestModuleExecution:
 
     def test_module_has_main_block(self):
         """server.py has the `if __name__ == '__main__': main()` block."""
-        from awslabs.ec2_rescue_mcp_server import server
+        from awslabs.ec2rescue_for_linux_mcp_server import server
 
         source = inspect.getsource(server)
         assert "if __name__ == '__main__':" in source

@@ -1,5 +1,5 @@
 [project]
-name = "awslabs.ec2-rescue-mcp-server"
+name = "awslabs.ec2rescue-for-linux-mcp-server"
 
 # NOTE: "Patch"=9223372036854775807 bumps next release to zero.
 version = "0.0.0"
@@ -34,13 +34,13 @@ classifiers = [
 
 [project.urls]
 homepage = "https://awslabs.github.io/mcp/"
-docs = "https://awslabs.github.io/mcp/servers/ec2-rescue-mcp-server/"
-documentation = "https://awslabs.github.io/mcp/servers/ec2-rescue-mcp-server/"
+docs = "https://awslabs.github.io/mcp/servers/ec2rescue-for-linux-mcp-server/"
+documentation = "https://awslabs.github.io/mcp/servers/ec2rescue-for-linux-mcp-server/"
 repository = "https://github.com/awslabs/mcp.git"
-changelog = "https://github.com/awslabs/mcp/blob/main/src/ec2-rescue-mcp-server/CHANGELOG.md"
+changelog = "https://github.com/awslabs/mcp/blob/main/src/ec2rescue-for-linux-mcp-server/CHANGELOG.md"
 
 [project.scripts]
-"awslabs.ec2-rescue-mcp-server" = "awslabs.ec2_rescue_mcp_server.server:main"
+"awslabs.ec2rescue-for-linux-mcp-server" = "awslabs.ec2rescue_for_linux_mcp_server.server:main"
 
 [dependency-groups]
 dev = [
@@ -109,7 +109,7 @@ version = "0.0.0"
 tag_format = "v$version"
 version_files = [
     "pyproject.toml:version",
-    "awslabs/ec2_rescue_mcp_server/__init__.py:__version__"
+    "awslabs/ec2rescue_for_linux_mcp_server/__init__.py:__version__"
 ]
 update_changelog_on_bump = true
 

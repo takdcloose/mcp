@@ -15,7 +15,7 @@
 """Tests for the ec2rl module."""
 
 import pytest
-from awslabs.ec2_rescue_mcp_server.ec2rl import (
+from awslabs.ec2rescue_for_linux_mcp_server.ec2rl import (
     Ec2rlModule,
     validate_command,
     validate_log_read_command,
