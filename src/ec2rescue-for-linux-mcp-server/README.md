@@ -91,8 +91,8 @@ You can modify the settings of your MCP client to run your local server (e.g. fo
       ],
       "env": {
         "FASTMCP_LOG_LEVEL": "ERROR",
-        "AWS_PROFILE": "your-profile"
-        "AWS_REGION": "us-east-1",
+        "AWS_PROFILE": "your-profile",
+        "AWS_REGION": "us-east-1"
       },
       "autoApprove": [],
       "disabled": false
@@ -115,8 +115,8 @@ You can modify the settings of your MCP client to run your local server (e.g. fo
       ],
       "env": {
         "FASTMCP_LOG_LEVEL": "ERROR",
-        "AWS_PROFILE": "your-profile"
-        "AWS_REGION": "us-east-1",
+        "AWS_PROFILE": "your-profile",
+        "AWS_REGION": "us-east-1"
       },
       "autoApprove": [],
       "disabled": false
@@ -138,8 +138,8 @@ To specify a flag (for example, to enable all modules), add it to the `args` arr
       ],
       "env": {
         "FASTMCP_LOG_LEVEL": "ERROR",
-        "AWS_PROFILE": "your-profile"
-        "AWS_REGION": "us-east-1",
+        "AWS_PROFILE": "your-profile",
+        "AWS_REGION": "us-east-1"
       },
       "autoApprove": [],
       "disabled": false
