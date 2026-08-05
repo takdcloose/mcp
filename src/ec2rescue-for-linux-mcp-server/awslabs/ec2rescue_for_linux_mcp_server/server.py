@@ -26,6 +26,7 @@ import os
 import sys
 from awslabs.ec2rescue_for_linux_mcp_server import ec2rl as ec2rl_module
 from awslabs.ec2rescue_for_linux_mcp_server import elicitation as _elicitation
+from awslabs.ec2rescue_for_linux_mcp_server.auth import get_server_auth
 from awslabs.ec2rescue_for_linux_mcp_server.consts import (
     DEFAULT_AWS_REGION,
     DEFAULT_MOD_DIR,
@@ -60,6 +61,9 @@ except Exception as e:
     raise
 
 
+# The FastMCP instance is created without auth settings initially (for stdio).
+# When --transport=streamable-http is used, main() replaces this instance
+# with one that has auth configured based on AUTH_TYPE env var.
 mcp = FastMCP(
     SERVER_NAME,
     instructions='EC2Rescue for Linux MCP Server (ec2rl modules loaded at startup).',
@@ -271,6 +275,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main():
     """Run the MCP server with CLI argument support."""
+    global mcp
+
     args = _parse_args()
     mod_dir = args.mod_dir or _default_mod_dir()
 
@@ -282,6 +288,25 @@ def main():
     )
     _elicitation._ALLOW_PERFIMPACT = args.allow_perfimpact
     _elicitation._ALLOW_INSTALL = args.allow_install
+
+    # Configure authentication based on transport.
+    # For streamable-http, AUTH_TYPE env var is required.
+    auth_settings, token_verifier = get_server_auth(args.transport)
+
+    if auth_settings is not None or token_verifier is not None:
+        # Recreate the FastMCP instance with auth configured.
+        mcp = FastMCP(
+            SERVER_NAME,
+            instructions='EC2Rescue for Linux MCP Server (ec2rl modules loaded at startup).',
+            dependencies=[
+                'boto3',
+                'loguru',
+                'pydantic',
+                'pyyaml',
+            ],
+            auth=auth_settings,
+            token_verifier=token_verifier,
+        )
 
     all_modules = load_modules_from_yaml_dir(mod_dir, include_remediation=args.remediate)
 

@@ -236,7 +236,11 @@ class TestMainTransport:
             '--port',
             '9999',
         ]
-        with patch.object(sys, 'argv', argv), patch.object(mcp, 'run') as mock_run:
+        with (
+            patch.dict('os.environ', {'AUTH_TYPE': 'no-auth'}),
+            patch.object(sys, 'argv', argv),
+            patch.object(mcp, 'run') as mock_run,
+        ):
             main()
         mock_run.assert_called_once_with(transport='streamable-http')
         assert mcp.settings.host == '1.2.3.4'

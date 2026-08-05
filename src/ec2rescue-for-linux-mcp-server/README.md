@@ -208,6 +208,8 @@ The IAM principal running this MCP server needs the following minimum permission
 
 ## Authentication
 
+### AWS Credentials
+
 AWS credentials are passed via environment variables. Supported options:
 
 | Variable | Description |
@@ -215,6 +217,38 @@ AWS credentials are passed via environment variables. Supported options:
 | `AWS_PROFILE` | AWS CLI named profile |
 | `AWS_REGION` | AWS region (default: `us-east-1`) |
 | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Static credentials |
+
+### MCP Client Authentication (Streamable HTTP)
+
+When using `--transport=streamable-http`, the server requires the `AUTH_TYPE` environment variable to be explicitly set to prevent unintentional unauthenticated exposure:
+
+| `AUTH_TYPE` | Description |
+|-------------|-------------|
+| `no-auth` | Explicitly disables authentication. Use only when network access is restricted (e.g., localhost-only). |
+| `oauth` | Enables OAuth 2.0 JWT Bearer token verification. Requires `AUTH_ISSUER` and `AUTH_JWKS_URI`. |
+
+Additional environment variables for `AUTH_TYPE=oauth`:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AUTH_ISSUER` | Yes | Expected `iss` claim in the JWT (e.g., `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_XXXXXXX`). |
+| `AUTH_JWKS_URI` | Yes | URL of the JWKS endpoint for verifying token signatures. |
+| `AUTH_AUDIENCE` | No | Expected `aud` claim. If omitted, audience is not validated. |
+
+> **Note:** `AUTH_TYPE` is only required for `--transport=streamable-http`. The stdio transport (default) does not require authentication as it communicates via stdin/stdout with the parent process.
+
+### 🔒 HTTP Mode Security Considerations
+
+**IMPORTANT**: When using HTTP mode (`streamable-http`), please be aware of the following security considerations:
+
+- **Single Customer Server**: This HTTP mode is intended for **single customer use only**. It is **NOT designed for multi-tenant environments** or serving multiple users simultaneously.
+- **Authentication**: The server can be started with OAuth authentication, using `AUTH_TYPE=oauth`. Set `AUTH_TYPE=no-auth` to disable authentication if needed.
+- **Network Security Controls**: Ensure proper network security controls are in place:
+  - Bind to localhost (`127.0.0.1`) when possible
+  - Configure firewall rules to restrict access
+- **Encryption in Transit**: We **strongly recommend** adding encryption in transit when using HTTP mode:
+  - Place a reverse proxy (e.g., nginx, ALB) with TLS in front of the server
+  - Avoid transmitting sensitive data over unencrypted HTTP connections
 
 ## CLI Flags
 
@@ -233,11 +267,25 @@ AWS credentials are passed via environment variables. Supported options:
 ### Streamable HTTP example
 
 ```bash
-uv run awslabs.ec2rescue-for-linux-mcp-server \
+AUTH_TYPE=no-auth AWS_PROFILE=your-profile AWS_REGION=us-east-1 \
+  uv run awslabs.ec2rescue-for-linux-mcp-server \
     --transport streamable-http --host 0.0.0.0 --port 8080
 ```
 
-Endpoint: `http://<host>:<port>/mcp`.
+Once the server is running, connect to it using the following MCP client configuration (ensure the host and port match your `--host` and `--port` settings):
+
+```json
+{
+  "mcpServers": {
+    "awslabs.ec2rescue-for-linux-mcp-server": {
+      "type": "http",
+      "url": "http://127.0.0.1:8080/mcp"
+    }
+  }
+}
+```
+
+> **Note:** Replace `127.0.0.1` with your server's host if you've set `--host` to a different value.
 
 ### All modules with installation enabled
 
