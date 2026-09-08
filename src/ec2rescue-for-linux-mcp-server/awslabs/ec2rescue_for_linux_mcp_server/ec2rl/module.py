@@ -59,7 +59,7 @@ class Ec2rlModule:
         perfimpact: bool = False,
     ):
         """Initialize from YAML fields; raises ValueError on unsafe name/package/software."""
-        if not _IDENTIFIER_RE.match(name):
+        if not _IDENTIFIER_RE.fullmatch(name):
             raise ValueError(f'Invalid module name: {name!r}')
         self.name = name
         self.log_subpath = log_subpath
@@ -72,11 +72,11 @@ class Ec2rlModule:
         self.domain = domain
         self.perfimpact = perfimpact
 
-        if package and not _IDENTIFIER_RE.match(package):
+        if package and not _IDENTIFIER_RE.fullmatch(package):
             raise ValueError(f'Invalid package name for module {name!r}: {package!r}')
         self.package = package
 
-        if software and not self._SOFTWARE_BINARY_RE.match(software):
+        if software and not self._SOFTWARE_BINARY_RE.fullmatch(software):
             raise ValueError(f'Invalid software binary for module {name!r}: {software!r}')
         self.software = software
 
@@ -122,7 +122,7 @@ class Ec2rlModule:
             value = args[key]
             if value is None or value == '':
                 continue
-            if not _IDENTIFIER_RE.match(key):
+            if not _IDENTIFIER_RE.fullmatch(key):
                 raise ValueError(f'Invalid argument key: {key!r}')
             if not isinstance(value, str) or not validate_arg_value(key, value):
                 raise ValueError(
@@ -182,14 +182,14 @@ class Ec2rlModule:
         (append-only logs like ``dmesg``); otherwise the whole file is cat-ed.
         The generated command is re-validated against its allowlist.
         """
-        if not _OUTPUT_DIR_RE.match(output_dir):
+        if not _OUTPUT_DIR_RE.fullmatch(output_dir):
             raise ValueError(f'Invalid ec2rl output directory: {output_dir}')
         if tail_lines is None:
             return f'cat {output_dir}/{self.log_subpath}'
         if not isinstance(tail_lines, int) or tail_lines < 1:
             raise ValueError(f'Invalid tail line count: {tail_lines!r}')
         cmd = f'tail -n {tail_lines} {output_dir}/{self.log_subpath}'
-        if not _MOD_OUT_TAIL_RE.match(cmd):
+        if not _MOD_OUT_TAIL_RE.fullmatch(cmd):
             raise ValueError(f'Invalid log tail command for module {self.name!r}')
         return cmd
 
@@ -220,7 +220,7 @@ class Ec2rlModule:
                 positive int, or any relative path produces a command that
                 fails allowlist validation (e.g. contains ``..``).
         """
-        if not _OUTPUT_DIR_RE.match(output_dir):
+        if not _OUTPUT_DIR_RE.fullmatch(output_dir):
             raise ValueError(f'Invalid ec2rl output directory: {output_dir}')
         if tail_lines is not None and (not isinstance(tail_lines, int) or tail_lines < 1):
             raise ValueError(f'Invalid tail line count: {tail_lines!r}')
@@ -232,7 +232,7 @@ class Ec2rlModule:
                 cmd, pattern = f'cat {path}', _GATHERED_READ_CMD_RE
             else:
                 cmd, pattern = f'tail -n {tail_lines} {path}', _GATHERED_TAIL_CMD_RE
-            if not pattern.match(cmd):
+            if not pattern.fullmatch(cmd):
                 raise ValueError(
                     f'Invalid gathered file path for module {self.name!r}: {rel!r}'
                 )
@@ -242,7 +242,7 @@ class Ec2rlModule:
     def is_valid_gathered_relpath(self, output_dir: str, rel_path: str) -> bool:
         """True if ``rel_path`` produces an allowlisted gathered ``cat`` command."""
         cmd = f'cat {output_dir}/gathered_out/{self.name}/{rel_path}'
-        return bool(_GATHERED_READ_CMD_RE.match(cmd))
+        return bool(_GATHERED_READ_CMD_RE.fullmatch(cmd))
 
     def gathered_list_command(self, output_dir: str) -> str:
         """Return ``find <output_dir>/gathered_out/<name> -type f`` for listing.
@@ -251,10 +251,10 @@ class Ec2rlModule:
         module and hasn't supplied a ``files`` argument — the AI can read this
         listing and choose which files to read on a follow-up call.
         """
-        if not _OUTPUT_DIR_RE.match(output_dir):
+        if not _OUTPUT_DIR_RE.fullmatch(output_dir):
             raise ValueError(f'Invalid ec2rl output directory: {output_dir}')
         cmd = f'find {output_dir}/gathered_out/{self.name} -type f'
-        if not _GATHERED_LIST_CMD_RE.match(cmd):
+        if not _GATHERED_LIST_CMD_RE.fullmatch(cmd):
             raise ValueError(f'Invalid gathered list command: {cmd!r}')
         return cmd
 
@@ -272,7 +272,7 @@ class Ec2rlModule:
         Useful when the gathered file is large and only specific configuration
         keys are interesting (e.g. kernel config CONFIG_* settings, sysctl).
         """
-        if not _OUTPUT_DIR_RE.match(output_dir):
+        if not _OUTPUT_DIR_RE.fullmatch(output_dir):
             raise ValueError(f'Invalid ec2rl output directory: {output_dir}')
         if not keys:
             raise ValueError('At least one key is required for gathered_grep_command')
@@ -289,7 +289,7 @@ class Ec2rlModule:
             f"grep -hE '^({pattern})=' "
             f'{output_dir}/gathered_out/{self.name}/{rel_path}'
         )
-        if not _GATHERED_GREP_CMD_RE.match(cmd):
+        if not _GATHERED_GREP_CMD_RE.fullmatch(cmd):
             raise ValueError(
                 f'Invalid gathered grep command for module {self.name!r}: '
                 f'rel_path={rel_path!r}'
@@ -303,7 +303,7 @@ class Ec2rlModule:
         format with dots in keys (e.g. ``sysctl -a`` output). The pattern
         allows optional whitespace before ``=``.
         """
-        if not _OUTPUT_DIR_RE.match(output_dir):
+        if not _OUTPUT_DIR_RE.fullmatch(output_dir):
             raise ValueError(f'Invalid ec2rl output directory: {output_dir}')
         if not keys:
             raise ValueError('At least one key is required for log_sysctl_grep_command')
@@ -320,7 +320,7 @@ class Ec2rlModule:
             f"grep -hE '^({pattern})[ \\t]*=' "
             f'{output_dir}/mod_out/run/{self.name}.log'
         )
-        if not _LOG_SYSCTL_GREP_CMD_RE.match(cmd):
+        if not _LOG_SYSCTL_GREP_CMD_RE.fullmatch(cmd):
             raise ValueError(
                 f'Invalid log sysctl grep command for module {self.name!r}'
             )
@@ -334,7 +334,7 @@ class Ec2rlModule:
         suffix ensures grep returning no matches (exit 1) does not cause SSM
         to report failure.
         """
-        if not _OUTPUT_DIR_RE.match(output_dir):
+        if not _OUTPUT_DIR_RE.fullmatch(output_dir):
             raise ValueError(f'Invalid ec2rl output directory: {output_dir}')
         if not keys:
             raise ValueError('At least one key is required for log_grep_command')
@@ -351,7 +351,7 @@ class Ec2rlModule:
             f'grep -hF {args} '
             f'{output_dir}/mod_out/run/{self.name}.log || true'
         )
-        if not _LOG_FIXED_GREP_CMD_RE.match(cmd):
+        if not _LOG_FIXED_GREP_CMD_RE.fullmatch(cmd):
             raise ValueError(
                 f'Invalid log grep command for module {self.name!r}'
             )
@@ -364,13 +364,13 @@ class Ec2rlModule:
         ``/etc/nsswitch.conf``). Empty lines are preserved; only comment lines
         — including those with leading whitespace — are removed.
         """
-        if not _OUTPUT_DIR_RE.match(output_dir):
+        if not _OUTPUT_DIR_RE.fullmatch(output_dir):
             raise ValueError(f'Invalid ec2rl output directory: {output_dir}')
         cmd = (
             f"grep -vE '^[[:space:]]*#' "
             f'{output_dir}/gathered_out/{self.name}/{rel_path}'
         )
-        if not _GATHERED_NOCOMMENT_CMD_RE.match(cmd):
+        if not _GATHERED_NOCOMMENT_CMD_RE.fullmatch(cmd):
             raise ValueError(
                 f'Invalid gathered nocomment command for module {self.name!r}: '
                 f'rel_path={rel_path!r}'
@@ -386,7 +386,7 @@ class Ec2rlModule:
                 for j in range(i + 1, len(lines)):
                     stripped = lines[j].strip()
                     if stripped:
-                        if _OUTPUT_DIR_RE.match(stripped):
+                        if _OUTPUT_DIR_RE.fullmatch(stripped):
                             return stripped
                         break
         return None

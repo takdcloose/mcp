@@ -298,8 +298,8 @@ _INJECTION_ARG_VALUES: tuple[str, ...] = (
     '5\\nid',       # literal backslash-n
 )
 # Note: trailing-newline / trailing-whitespace payloads (e.g. '5\n') are
-# covered separately by the regex anchoring tests, since rejecting them
-# requires full-string matching rather than value-charset filtering.
+# covered by TestFullStringAnchoring below, since rejecting them requires
+# full-string matching rather than value-charset filtering.
 
 
 class TestArgumentInjection:
@@ -408,3 +408,92 @@ class TestArgumentInjection:
         assert validate_command(
             'ec2rl run --only-modules=top --times=5', registry
         ) is True
+
+
+class TestFullStringAnchoring:
+    r"""Validators must match the entire string, with no end-of-string slack.
+
+    All allowlist patterns are anchored with ``^...$`` but a ``$`` anchor
+    still matches just before one trailing newline, so ``re.match`` accepted
+    payloads like ``'5\n'``. The validators use ``re.fullmatch`` so that
+    acceptance means the whole string -- to the last byte -- is the
+    allowlisted form. These tests pin every validation boundary against
+    trailing-character slack.
+    """
+
+    @pytest.mark.parametrize('trailer', ('\n', '\r', ' ', '\t', '\r\n'))
+    def test_run_command_rejects_trailing_characters(self, registry, trailer):
+        """A run command with any trailing character is not the allowlisted form."""
+        assert validate_command(
+            f'ec2rl run --only-modules=top --times=5{trailer}', registry
+        ) is False
+
+    @pytest.mark.parametrize('trailer', ('\n', '\r', ' '))
+    def test_which_command_rejects_trailing_characters(self, trailer):
+        """``which <binary>`` with a trailing character is rejected."""
+        registry = {
+            'atopmod': Ec2rlModule(
+                'atopmod',
+                'mod_out/run/atopmod.log',
+                package='atop',
+                software='atop',
+            ),
+        }
+        assert validate_command(f'which atop{trailer}', registry) is False
+
+    @pytest.mark.parametrize('trailer', ('\n', '\r', ' '))
+    def test_software_check_rejects_trailing_characters(self, trailer):
+        """The grep-filtered software-check form is rejected with a trailer."""
+        registry = {
+            'atopmod': Ec2rlModule(
+                'atopmod',
+                'mod_out/run/atopmod.log',
+                package='atop',
+                software='atop',
+            ),
+        }
+        command = f"ec2rl software-check | grep -i 'atop' || true{trailer}"
+        assert validate_command(command, registry) is False
+
+    @pytest.mark.parametrize(
+        'command',
+        (
+            'cat /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log\n',
+            'tail -n 100 /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log\n',
+            'find /var/tmp/ec2rl/2026-04-14T02_50_34.749027/gathered_out/messages -type f\n',
+        ),
+    )
+    def test_log_read_rejects_trailing_newline(self, command):
+        """Log-read forms with a trailing newline are rejected."""
+        assert validate_log_read_command(command) is False
+
+    def test_log_read_baseline_still_accepted(self):
+        """The same log-read form without the trailer remains accepted."""
+        assert validate_log_read_command(
+            'cat /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        ) is True
+
+    @pytest.mark.parametrize(
+        'field_kwargs',
+        (
+            {'name': 'top\n'},
+            {'name': 'ok', 'package': 'atop\n'},
+            {'name': 'ok', 'software': 'atop\n'},
+        ),
+    )
+    def test_module_fields_reject_trailing_newline(self, field_kwargs):
+        """Module identity fields with a trailing newline raise ValueError.
+
+        These fields are interpolated into commands (module name into the
+        run form, package into the software-check grep, software into the
+        which form), so end-of-string slack here would leak into command
+        construction.
+        """
+        name = field_kwargs.pop('name')
+        with pytest.raises(ValueError):
+            Ec2rlModule(name, 'mod_out/run/x.log', **field_kwargs)
+
+    def test_build_run_command_rejects_trailing_newline_value(self, registry):
+        """build_run_command refuses an argument value with a trailing newline."""
+        with pytest.raises(ValueError):
+            registry['top'].build_run_command({'times': '5\n'})

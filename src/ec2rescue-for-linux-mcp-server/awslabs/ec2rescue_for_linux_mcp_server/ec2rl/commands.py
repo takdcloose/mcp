@@ -52,8 +52,8 @@ _TIME_ARG_VALUE_RE = re.compile(r'^[A-Za-z0-9:+._/\-]+$')
 def validate_arg_value(key: str, value: str) -> bool:
     """True if ``value`` is allowed for argument ``key`` (time args get ':'/'+')."""
     if key in _TIME_ARG_KEYS:
-        return bool(_TIME_ARG_VALUE_RE.match(value))
-    return bool(_ARG_VALUE_RE.match(value))
+        return bool(_TIME_ARG_VALUE_RE.fullmatch(value))
+    return bool(_ARG_VALUE_RE.fullmatch(value))
 
 _TIMESTAMP_RE = r'\d{4}-\d{2}-\d{2}T[\d_.]+'
 _OUTPUT_DIR_RE = re.compile(
@@ -156,15 +156,15 @@ def validate_log_read_command(command: str) -> bool:
       grep on collect-class logs (e.g. dpkgpackages, rpmpackages).
     """
     return bool(
-        _MOD_OUT_LOG_RE.match(command)
-        or _MOD_OUT_TAIL_RE.match(command)
-        or _GATHERED_READ_CMD_RE.match(command)
-        or _GATHERED_TAIL_CMD_RE.match(command)
-        or _GATHERED_LIST_CMD_RE.match(command)
-        or _GATHERED_GREP_CMD_RE.match(command)
-        or _LOG_SYSCTL_GREP_CMD_RE.match(command)
-        or _GATHERED_NOCOMMENT_CMD_RE.match(command)
-        or _LOG_FIXED_GREP_CMD_RE.match(command)
+        _MOD_OUT_LOG_RE.fullmatch(command)
+        or _MOD_OUT_TAIL_RE.fullmatch(command)
+        or _GATHERED_READ_CMD_RE.fullmatch(command)
+        or _GATHERED_TAIL_CMD_RE.fullmatch(command)
+        or _GATHERED_LIST_CMD_RE.fullmatch(command)
+        or _GATHERED_GREP_CMD_RE.fullmatch(command)
+        or _LOG_SYSCTL_GREP_CMD_RE.fullmatch(command)
+        or _GATHERED_NOCOMMENT_CMD_RE.fullmatch(command)
+        or _LOG_FIXED_GREP_CMD_RE.fullmatch(command)
     )
 
 
@@ -188,7 +188,7 @@ def _validate_software_check_command(
     registry: dict[str, 'Ec2rlModule'],
 ) -> bool:
     """True if ``command`` is a grep-filtered software-check for a known package."""
-    match = _SOFTWARE_CHECK_CMD_RE.match(command)
+    match = _SOFTWARE_CHECK_CMD_RE.fullmatch(command)
     if not match:
         return False
     pkg = match.group('pkg')
@@ -200,7 +200,7 @@ def _validate_which_binary_command(
     registry: dict[str, 'Ec2rlModule'],
 ) -> bool:
     """True if ``command`` is a ``which <binary>`` check for a known module's software."""
-    match = _WHICH_BINARY_CHECK_CMD_RE.match(command)
+    match = _WHICH_BINARY_CHECK_CMD_RE.fullmatch(command)
     if not match:
         return False
     binary = match.group('binary')
