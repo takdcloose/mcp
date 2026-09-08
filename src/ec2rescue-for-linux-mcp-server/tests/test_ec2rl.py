@@ -261,3 +261,150 @@ class TestValidateCommand:
     def test_rejects_module_absent_from_registry(self, registry):
         """Reject a run command for a module not in the registry."""
         assert validate_command('ec2rl run --only-modules=syslog', registry) is False
+
+
+# Shell metacharacters and control bytes that must never survive validation
+# when smuggled through an argument *value*. Each keeps a valid
+# `ec2rl run --only-modules=top --times=<value>` prefix and a registered
+# module -- the only command shape that could plausibly reach the SSM layer
+# while still looking allowlisted.
+_INJECTION_ARG_VALUES: tuple[str, ...] = (
+    '5;id',
+    '5 id',
+    '5&&id',
+    '5&id',
+    '5|id',
+    '5||id',
+    '5$(id)',
+    '5`id`',
+    '5${IFS}id',
+    '5>/tmp/x',
+    '5</etc/passwd',
+    '5#comment',
+    '5\\id',
+    "5'id",
+    '5"id',
+    '5*',
+    '5?',
+    '5~',
+    '5!id',
+    '5\nid',        # embedded LF
+    '5\rid',        # embedded CR
+    '5\r\nid',      # CRLF
+    '5\x00id',      # NUL
+    '5\tid',        # tab
+    '5%0aid',       # URL-encoded LF (must stay literal, not be decoded)
+    '5%3Bid',       # URL-encoded ';'
+    '5\\nid',       # literal backslash-n
+)
+# Note: trailing-newline / trailing-whitespace payloads (e.g. '5\n') are
+# covered separately by the regex anchoring tests, since rejecting them
+# requires full-string matching rather than value-charset filtering.
+
+
+class TestArgumentInjection:
+    """Reject shell syntax smuggled through an argument value.
+
+    A command that keeps a valid ``ec2rl run --only-modules=<module>`` prefix
+    and a registered module, but carries shell metacharacters or control bytes
+    inside an argument value, must be rejected so no payload reaches the SSM
+    execution layer. This is distinct from a structurally invalid command
+    (e.g. ``cat /etc/passwd``): the prefix is well-formed and only the value
+    is hostile.
+    """
+
+    @pytest.mark.parametrize('value', _INJECTION_ARG_VALUES)
+    def test_rejects_injection_through_declared_arg_value(self, registry, value):
+        """Reject shell syntax / control bytes smuggled through a declared arg."""
+        command = f'ec2rl run --only-modules=top --times={value}'
+        assert validate_command(command, registry) is False
+
+    @pytest.mark.parametrize('value', _INJECTION_ARG_VALUES)
+    def test_rejects_injection_through_time_arg_value(self, registry, value):
+        """Reject the same payloads on a time arg (wider charset, still bounded).
+
+        ``since``/``until`` allow ``:`` and ``+`` in addition to the default
+        set, so they need independent coverage -- a payload could pass the
+        default validator's rejection for the wrong reason.
+        """
+        module = Ec2rlModule('journal', 'mod_out/run/journal.log', optional_args=['since'])
+        reg = {'journal': module}
+        command = f'ec2rl run --only-modules=journal --since={value}'
+        assert validate_command(command, reg) is False
+
+    def test_rejects_injection_as_separate_token(self, registry):
+        """Reject an injected token that word-splits away from a valid --key=value.
+
+        A space in the value makes the injection a separate argv token. It can
+        no longer hide inside the value charset check and must instead fail the
+        ``--key=value`` shape check applied to every token after the module.
+        """
+        for command in (
+            'ec2rl run --only-modules=top --times=5 ;id',
+            'ec2rl run --only-modules=top --times=5 id',
+            'ec2rl run --only-modules=top --times=5 cat /etc/passwd',
+            'ec2rl run --only-modules=top --times=5 &',
+        ):
+            assert validate_command(command, registry) is False
+
+    def test_rejects_bare_token_without_double_dash(self, registry):
+        """Reject a trailing token that is not a ``--key=value`` pair."""
+        for command in (
+            'ec2rl run --only-modules=dmesg extra',
+            'ec2rl run --only-modules=dmesg -times=5',   # single dash
+            'ec2rl run --only-modules=dmesg times=5',    # no dash at all
+        ):
+            assert validate_command(command, registry) is False
+
+    def test_rejects_flag_shaped_token_without_value(self, registry):
+        """Reject a ``--flag`` token that carries no ``=value``."""
+        for command in (
+            'ec2rl run --only-modules=top --times',      # key, no =value
+            'ec2rl run --only-modules=top --verbose',    # unknown bare flag
+        ):
+            assert validate_command(command, registry) is False
+
+    def test_rejects_unknown_key_even_with_valid_value(self, registry):
+        """Reject a well-formed ``--key=value`` whose key the module never declared."""
+        assert validate_command(
+            'ec2rl run --only-modules=top --unknownkey=5', registry
+        ) is False
+
+    def test_rejects_perfimpact_flag_on_non_perfimpact_module(self, registry):
+        """Reject the module-level perfimpact flag on a module not marked perfimpact.
+
+        The literal flag is accepted only for perfimpact-flagged modules, so it
+        must not be smuggleable onto an arbitrary allowlisted module.
+        """
+        assert validate_command(
+            'ec2rl run --only-modules=dmesg --perfimpact=true', registry
+        ) is False
+
+    def test_rejects_injection_in_module_name_position(self, registry):
+        """Reject shell syntax placed in the module-name slot itself."""
+        for command in (
+            'ec2rl run --only-modules=dmesg;id',
+            'ec2rl run --only-modules=dmesg,top',        # comma-chained modules
+            'ec2rl run --only-modules=$(id)',
+        ):
+            assert validate_command(command, registry) is False
+
+    def test_rejects_double_space_producing_empty_token(self, registry):
+        """Reject collapsed/empty tokens from repeated separators.
+
+        Splitting on a single space turns a double space into an empty token,
+        which is neither the perfimpact flag nor a ``--key=value`` pair.
+        """
+        assert validate_command(
+            'ec2rl run --only-modules=top  --times=5', registry
+        ) is False
+
+    def test_accepts_benign_value_baseline(self, registry):
+        """Sanity check: a clean value on the same prefix is still accepted.
+
+        Guards against a future over-broad fix that rejects everything and
+        makes the injection assertions pass vacuously.
+        """
+        assert validate_command(
+            'ec2rl run --only-modules=top --times=5', registry
+        ) is True
