@@ -16,6 +16,7 @@
 
 import asyncio
 import boto3
+import shlex
 import time
 from awslabs.ec2rescue_for_linux_mcp_server.consts import (
     BOTO_CONFIG,
@@ -91,6 +92,30 @@ def _list_ssm_instances_sync(session: boto3.Session) -> list[dict]:
 _LOGIN_SHELL_PREFIXES = ('ec2rl ', 'which ')
 
 
+def _unwrap_login_shell(wrapped: str) -> str | None:
+    """Recover the original command from a ``bash -l -c '...'`` wrapping.
+
+    Tokenizes ``wrapped`` with the standard shell lexer and returns the
+    command argument only if it parses to exactly ``bash -l -c <command>``
+    (four tokens). Any other shape -- extra tokens, an unbalanced quote, or a
+    metacharacter that escaped the quoting -- yields ``None``, which signals
+    that the wrapping did not contain the input as a single argument.
+
+    Using :func:`shlex.split` rather than reversing the escaping by hand
+    grounds the check in the same lexical rules a POSIX shell applies, so the
+    round-trip guarantee does not rest on a bespoke unquoting routine.
+    """
+    try:
+        tokens = shlex.split(wrapped)
+    except ValueError:
+        # Unbalanced quotes: the wrapping is not a well-formed single-quoted
+        # argument.
+        return None
+    if len(tokens) == 4 and tokens[:3] == ['bash', '-l', '-c']:
+        return tokens[3]
+    return None
+
+
 def _wrap_login_shell(command: str) -> str:
     """Wrap commands that need the full user PATH in ``bash -l -c '...'``.
 
@@ -98,11 +123,26 @@ def _wrap_login_shell(command: str) -> str:
     PATH. Commands like ``ec2rl`` and ``which`` need ``/etc/profile.d/``
     sourced to find binaries in non-standard locations (e.g.
     ``/usr/share/bcc/tools/``).
+
+    The wrapped result is re-parsed before it is returned: tokenizing it must
+    yield exactly ``bash -l -c <command>``. If it does not, the single-quote
+    escaping failed to contain the input (a shell injection would otherwise
+    reach the instance), so this raises ``ValueError`` rather than returning a
+    command that was never re-validated.
     """
-    if any(command.startswith(prefix) for prefix in _LOGIN_SHELL_PREFIXES):
-        escaped = command.replace("'", "'\\''")
-        return f"bash -l -c '{escaped}'"
-    return command
+    if not any(command.startswith(prefix) for prefix in _LOGIN_SHELL_PREFIXES):
+        return command
+
+    escaped = command.replace("'", "'\\''")
+    wrapped = f"bash -l -c '{escaped}'"
+
+    # Re-validate the wrapping by reversing it. This closes the gap where the
+    # validated command is re-quoted after validation and the result is never
+    # checked again.
+    if _unwrap_login_shell(wrapped) != command:
+        raise ValueError(f'Login-shell wrapping failed to round-trip: {command!r}')
+
+    return wrapped
 
 
 def _run_ssm_command_sync(
