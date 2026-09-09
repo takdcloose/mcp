@@ -20,6 +20,28 @@ AWS Systems Manager ──▶ EC2 instance (SSM Agent + ec2rl)
 - **Accessible triage** — Less-experienced engineers can ask questions like "Why is `i-0abc123` slow?" and receive AI-gathered diagnostic outputs with explanations.
 - **Credentials stay server-side** — AWS keys remain on the MCP server; clients never hold them.
 
+## Security Considerations
+
+Before using this MCP server, you should consider conducting your own
+independent assessment to ensure that your use complies with your own security
+and quality control practices, as well as the laws, rules, and regulations that
+govern you and your content.
+
+The agent can only run registered `ec2rl` modules with character-validated
+arguments, not arbitrary shell commands. After a run, the server reads the
+files `ec2rl` produced under `/var/tmp/ec2rl/<timestamp>/`. Those paths are
+reported by the instance, so reads are constrained to that directory and refuse
+to follow symlinks or traverse out of it.
+
+**Accepted risk.** The *contents* of files under that directory are whatever
+the instance wrote, so a compromised instance can return misleading diagnostic
+output. The server treats gathered output as untrusted data to surface to the
+operator, not as trusted input.
+
+When using the Streamable HTTP transport, see
+[HTTP Mode Security Considerations](#-http-mode-security-considerations) under
+Authentication.
+
 ## Prerequisites
 
 - Python 3.10+
