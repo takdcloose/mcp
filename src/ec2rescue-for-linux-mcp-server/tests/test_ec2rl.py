@@ -70,10 +70,11 @@ class TestEc2rlModule:
         )
 
     def test_log_read_command(self):
-        """Generate cat command for a valid output directory."""
+        """Generate a symlink-guarded cat command for a valid output directory."""
         module = Ec2rlModule('dmesg', 'mod_out/run/dmesg.log')
         cmd = module.log_read_command('/var/tmp/ec2rl/2026-04-14T02_50_34.749027')
-        assert cmd == 'cat /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        path = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        assert cmd == f'[ ! -L {path} ] && cat {path}'
 
     def test_log_read_command_rejects_invalid_dir(self):
         """Reject output directory outside /var/tmp/ec2rl."""
@@ -88,15 +89,13 @@ class TestEc2rlModule:
             module.log_read_command('/var/tmp/ec2rl/../../../etc')
 
     def test_log_read_command_tail(self):
-        """Generate tail command for an append-only mod_out log."""
+        """Generate a symlink-guarded tail command for an append-only mod_out log."""
         module = Ec2rlModule('dmesg', 'mod_out/run/dmesg.log')
         cmd = module.log_read_command(
             '/var/tmp/ec2rl/2026-04-14T02_50_34.749027', tail_lines=100
         )
-        assert cmd == (
-            'tail -n 100 '
-            '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
-        )
+        path = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        assert cmd == f'[ ! -L {path} ] && tail -n 100 {path}'
 
     def test_log_read_command_rejects_non_positive_tail(self):
         """Reject zero or negative tail line counts."""
@@ -108,18 +107,15 @@ class TestEc2rlModule:
                 )
 
     def test_gathered_read_commands_tail(self):
-        """Generate tail commands for append-only gathered files."""
+        """Generate symlink-guarded tail commands for append-only gathered files."""
         module = Ec2rlModule('yumlog', 'mod_out/run/yumlog.log')
         cmds = module.gathered_read_commands(
             '/var/tmp/ec2rl/2026-04-14T02_50_34.749027',
             files=['yum.log'],
             tail_lines=100,
         )
-        assert cmds == [(
-            'yum.log',
-            'tail -n 100 '
-            '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/gathered_out/yumlog/yum.log',
-        )]
+        path = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/gathered_out/yumlog/yum.log'
+        assert cmds == [('yum.log', f'[ ! -L {path} ] && tail -n 100 {path}')]
 
     def test_gathered_read_commands_tail_rejects_traversal(self):
         """Reject path traversal in the gathered tail relative path."""
@@ -164,9 +160,9 @@ class TestValidateLogReadCommand:
     """Tests for validate_log_read_command."""
 
     def test_accepts_valid_command(self):
-        """Accept cat of a valid ec2rl log path."""
-        cmd = 'cat /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
-        assert validate_log_read_command(cmd) is True
+        """Accept a symlink-guarded cat of a valid ec2rl log path."""
+        path = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        assert validate_log_read_command(f'[ ! -L {path} ] && cat {path}') is True
 
     def test_rejects_arbitrary_cat(self):
         """Reject cat of an arbitrary path."""
@@ -181,27 +177,28 @@ class TestValidateLogReadCommand:
         assert validate_log_read_command('rm /var/tmp/ec2rl/2026-04-14T02_50_34.749027/x.log') is False
 
     def test_accepts_mod_out_tail_command(self):
-        """Accept tail of a valid mod_out log path."""
-        cmd = 'tail -n 100 /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
-        assert validate_log_read_command(cmd) is True
+        """Accept a symlink-guarded tail of a valid mod_out log path."""
+        path = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        assert validate_log_read_command(f'[ ! -L {path} ] && tail -n 100 {path}') is True
 
     def test_accepts_gathered_tail_command(self):
-        """Accept tail of a valid gathered file path."""
-        cmd = (
-            'tail -n 50 '
-            '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/gathered_out/yumlog/yum.log'
-        )
-        assert validate_log_read_command(cmd) is True
+        """Accept a symlink-guarded tail of a valid gathered file path."""
+        path = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/gathered_out/yumlog/yum.log'
+        assert validate_log_read_command(f'[ ! -L {path} ] && tail -n 50 {path}') is True
 
     def test_rejects_tail_with_oversized_count(self):
         """Reject tail commands whose line count exceeds the allowlist bound."""
-        cmd = 'tail -n 99999999 /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
-        assert validate_log_read_command(cmd) is False
+        path = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        assert validate_log_read_command(
+            f'[ ! -L {path} ] && tail -n 99999999 {path}'
+        ) is False
 
     def test_rejects_tail_with_zero_count(self):
         """Reject tail commands with a zero line count."""
-        cmd = 'tail -n 0 /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
-        assert validate_log_read_command(cmd) is False
+        path = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        assert validate_log_read_command(
+            f'[ ! -L {path} ] && tail -n 0 {path}'
+        ) is False
 
     def test_rejects_tail_arbitrary_path(self):
         """Reject tail of an arbitrary path outside ec2rl output."""
@@ -231,9 +228,9 @@ class TestValidateCommand:
         ) is True
 
     def test_accepts_log_read_command(self, registry):
-        """Accept a valid log read command regardless of registry."""
-        cmd = 'cat /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
-        assert validate_command(cmd, registry) is True
+        """Accept a valid symlink-guarded log read command regardless of registry."""
+        path = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        assert validate_command(f'[ ! -L {path} ] && cat {path}', registry) is True
 
     def test_rejects_arbitrary_cat(self, registry):
         """Reject arbitrary cat commands."""
@@ -458,9 +455,12 @@ class TestFullStringAnchoring:
     @pytest.mark.parametrize(
         'command',
         (
-            'cat /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log\n',
-            'tail -n 100 /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log\n',
-            'find /var/tmp/ec2rl/2026-04-14T02_50_34.749027/gathered_out/messages -type f\n',
+            '[ ! -L /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log ]'
+            ' && cat /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log\n',
+            '[ ! -L /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log ]'
+            ' && tail -n 100 /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log\n',
+            'find /var/tmp/ec2rl/2026-04-14T02_50_34.749027/gathered_out/messages'
+            ' -type f ! -type l\n',
         ),
     )
     def test_log_read_rejects_trailing_newline(self, command):
@@ -468,10 +468,9 @@ class TestFullStringAnchoring:
         assert validate_log_read_command(command) is False
 
     def test_log_read_baseline_still_accepted(self):
-        """The same log-read form without the trailer remains accepted."""
-        assert validate_log_read_command(
-            'cat /var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
-        ) is True
+        """The same symlink-guarded log-read form without the trailer is accepted."""
+        path = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/mod_out/run/dmesg.log'
+        assert validate_log_read_command(f'[ ! -L {path} ] && cat {path}') is True
 
     @pytest.mark.parametrize(
         'field_kwargs',
@@ -497,3 +496,104 @@ class TestFullStringAnchoring:
         """build_run_command refuses an argument value with a trailing newline."""
         with pytest.raises(ValueError):
             registry['top'].build_run_command({'times': '5\n'})
+
+
+_RUN_DIR = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027'
+
+
+class TestReadBackSymlinkGuard:
+    """Read-back paths are target-controlled, so reads must refuse symlinks.
+
+    Pins that the allowlist requires the ``[ ! -L <path> ] && `` guard, that the
+    guard and reader must name the same path, and that a bare reader is refused.
+    """
+
+    def test_bare_cat_without_guard_is_rejected(self):
+        """A read-back command missing the symlink guard is not allowlisted."""
+        path = f'{_RUN_DIR}/mod_out/run/dmesg.log'
+        assert validate_log_read_command(f'cat {path}') is False
+
+    def test_bare_gathered_tail_without_guard_is_rejected(self):
+        """A gathered tail missing the guard is refused."""
+        path = f'{_RUN_DIR}/gathered_out/yumlog/yum.log'
+        assert validate_log_read_command(f'tail -n 100 {path}') is False
+
+    def test_guard_and_reader_must_name_same_path(self):
+        """A command that guards one path but reads another is rejected.
+
+        This is the core protection: a compromised instance must not be able
+        to make us test a safe path and then read a different, attacker-chosen
+        one.
+        """
+        guarded = f'{_RUN_DIR}/gathered_out/messages/safe.log'
+        read = f'{_RUN_DIR}/gathered_out/messages/evil.log'
+        command = f'[ ! -L {guarded} ] && cat {read}'
+        assert validate_log_read_command(command) is False
+
+    def test_guarded_reader_with_matching_path_is_accepted(self):
+        """The guard/read pair for one identical path is the allowlisted form."""
+        path = f'{_RUN_DIR}/gathered_out/messages/messages'
+        assert validate_log_read_command(f'[ ! -L {path} ] && cat {path}') is True
+
+    @pytest.mark.parametrize(
+        'reader',
+        (
+            'cat {p}',
+            'tail -n 100 {p}',
+            "grep -hE '^(CONFIG_SMP)=' {p}",
+            "grep -vE '^[[:space:]]*#' {p}",
+        ),
+    )
+    def test_each_gathered_reader_requires_guard(self, reader):
+        """Every gathered reader form is rejected without the guard prefix."""
+        path = f'{_RUN_DIR}/gathered_out/messages/messages'
+        assert validate_log_read_command(reader.format(p=path)) is False
+
+
+class TestGatheredListingExcludesSymlinks:
+    """The gathered file listing must exclude symlinks at the find level."""
+
+    def test_list_command_carries_symlink_exclusion(self):
+        """gathered_list_command emits ``-type f ! -type l``."""
+        module = Ec2rlModule('messages', 'mod_out/run/messages.log')
+        cmd = module.gathered_list_command(_RUN_DIR)
+        assert cmd == f'find {_RUN_DIR}/gathered_out/messages -type f ! -type l'
+
+    def test_find_without_symlink_exclusion_is_rejected(self):
+        """A find listing that omits ``! -type l`` is not allowlisted.
+
+        Guards against a regression that drops the exclusion and lets a
+        planted symlink be listed and then read back.
+        """
+        cmd = f'find {_RUN_DIR}/gathered_out/messages -type f'
+        assert validate_log_read_command(cmd) is False
+
+
+class TestTimestampShape:
+    """The target-controlled timestamp segment is pinned to ec2rl's exact shape.
+
+    ``%Y-%m-%dT%H_%M_%S.%f``; a loose segment could smuggle extra path structure.
+    """
+
+    def test_valid_timestamp_accepted(self):
+        """A well-formed timestamp directory is accepted."""
+        path = f'{_RUN_DIR}/mod_out/run/dmesg.log'
+        assert validate_log_read_command(f'[ ! -L {path} ] && cat {path}') is True
+
+    @pytest.mark.parametrize(
+        'ts',
+        (
+            '2026-13-14T02_50_34.749027',   # month 13
+            '2026-04-32T02_50_34.749027',   # day 32
+            '2026-04-14T24_50_34.749027',   # hour 24
+            '2026-04-14T02_60_34.749027',   # minute 60
+            '2026-04-14T02_50_60.749027',   # second 60
+            '2026-04-14T02_50_34.7490278',  # 7 microsecond digits
+            '2026-04-14T02_50_34',          # missing microseconds
+            '2026-4-14T02_50_34.749027',    # unpadded month
+        ),
+    )
+    def test_malformed_timestamp_rejected(self, ts):
+        """Timestamps that deviate from the exact ec2rl shape are rejected."""
+        path = f'/var/tmp/ec2rl/{ts}/mod_out/run/dmesg.log'
+        assert validate_log_read_command(f'[ ! -L {path} ] && cat {path}') is False

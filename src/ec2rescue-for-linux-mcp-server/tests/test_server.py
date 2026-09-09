@@ -242,9 +242,10 @@ class TestTailModules:
         assert data['status'] == 'Success'
         assert data['tail_lines'] == 100
         assert data['log_content'] == 'last 100 kernel lines'
-        # The second SSM call must be a `tail -n 100` of the dmesg log.
+        # The second SSM call must be a symlink-guarded `tail -n 100` of the log.
         read_cmd = mock_run.call_args_list[1].args[2]
-        assert read_cmd.startswith('tail -n 100 ')
+        assert read_cmd.startswith('[ ! -L ')
+        assert ' && tail -n 100 ' in read_cmd
         assert read_cmd.endswith('/mod_out/run/dmesg.log')
 
     @pytest.mark.asyncio
@@ -263,7 +264,8 @@ class TestTailModules:
 
         assert data['tail_lines'] == 25
         read_cmd = mock_run.call_args_list[1].args[2]
-        assert read_cmd.startswith('tail -n 25 ')
+        assert read_cmd.startswith('[ ! -L ')
+        assert ' && tail -n 25 ' in read_cmd
 
     @pytest.mark.asyncio
     @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
@@ -292,7 +294,8 @@ class TestTailModules:
         assert 'tail_lines' not in data
         mock_ctx.elicit.assert_awaited_once()
         read_cmd = mock_run.call_args_list[1].args[2]
-        assert read_cmd.startswith('cat ')
+        assert read_cmd.startswith('[ ! -L ')
+        assert ' && cat ' in read_cmd
 
     @pytest.mark.asyncio
     @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
@@ -328,7 +331,8 @@ class TestTailModules:
         assert data['tail_lines'] == 100
         assert 'yum.log' in data['files']
         read_cmd = mock_run.call_args_list[1].args[2]
-        assert read_cmd.startswith('tail -n 100 ')
+        assert read_cmd.startswith('[ ! -L ')
+        assert ' && tail -n 100 ' in read_cmd
         assert read_cmd.endswith('/gathered_out/yumlog/yum.log')
 
     @pytest.mark.asyncio
@@ -358,9 +362,10 @@ class TestTailModules:
         assert data['tail_lines'] == 100
         assert set(data['files']) == {'messages', 'messages-1'}
         mock_ctx.elicit.assert_not_called()
-        # The two file reads (calls 3 and 4) must be tail commands.
+        # The two file reads (calls 3 and 4) must be symlink-guarded tails.
         for call in mock_run.call_args_list[2:]:
-            assert call.args[2].startswith('tail -n 100 ')
+            assert call.args[2].startswith('[ ! -L ')
+            assert ' && tail -n 100 ' in call.args[2]
 
     @pytest.mark.asyncio
     @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
@@ -379,4 +384,45 @@ class TestTailModules:
         assert data['tail_lines'] == 100
         assert set(data['files']) == {'history.log', 'dpkg.log'}
         for call in mock_run.call_args_list[1:]:
-            assert call.args[2].startswith('tail -n 100 ')
+            assert call.args[2].startswith('[ ! -L ')
+            assert ' && tail -n 100 ' in call.args[2]
+
+
+class TestDiscoverGatheredFilesRejectsHostileListing:
+    """The find listing is attacker-influenced, so escapes must be dropped.
+
+    ``_discover_gathered_files`` keeps only names passing the gathered-path
+    allowlist, so a hostile listing can't steer a later read at an arbitrary file.
+    """
+
+    @pytest.mark.asyncio
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
+    async def test_hostile_listing_entries_are_dropped(self, mock_run):
+        """Only allowlisted relative paths survive a poisoned find listing."""
+        from awslabs.ec2rescue_for_linux_mcp_server.execution import (
+            _discover_gathered_files,
+        )
+
+        run_dir = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027'
+        base = f'{run_dir}/gathered_out/messages/'
+        stdout = '\n'.join(
+            [
+                f'{base}messages',                       # legitimate
+                f'{base}subdir/messages-1',              # legitimate nested
+                f'{base}../../../../etc/passwd',         # traversal escape
+                f'{base}../mod_out/run/other.log',       # sibling escape
+                '/etc/shadow',                           # outside base entirely
+                f'{base}',                               # the base dir itself (empty rel)
+                f'{base}ok with space',                  # space -> fails charset
+            ]
+        )
+        mock_run.side_effect = [
+            {'status': 'Success', 'stdout': stdout, 'stderr': '', 'exit_code': 0},
+        ]
+
+        module = Ec2rlModule('messages', 'mod_out/run/messages.log')
+        available = await _discover_gathered_files(
+            'i-1234567890abcdef0', module, run_dir
+        )
+
+        assert available == ['messages', 'subdir/messages-1']

@@ -55,84 +55,108 @@ def validate_arg_value(key: str, value: str) -> bool:
         return bool(_TIME_ARG_VALUE_RE.fullmatch(value))
     return bool(_ARG_VALUE_RE.fullmatch(value))
 
-_TIMESTAMP_RE = r'\d{4}-\d{2}-\d{2}T[\d_.]+'
+# ec2rl's output dir timestamp: `strftime('%Y-%m-%dT%H_%M_%S.%f')`, e.g.
+# `2026-04-14T02_50_34.749027`. This segment is target-controlled, so pin the
+# exact shape rather than accept a loose one.
+_TIMESTAMP_RE = (
+    r'\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])'
+    r'T(?:[01]\d|2[0-3])_[0-5]\d_[0-5]\d\.\d{1,6}'
+)
 _OUTPUT_DIR_RE = re.compile(
     rf'^{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}$'
-)
-# Legacy `mod_out/run/<name>.log` form, used by non-gathered modules.
-_MOD_OUT_LOG_RE = re.compile(
-    rf'^cat {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
-    r'/mod_out/run/[A-Za-z0-9_\-]+\.log$'
 )
 # `tail -n <N>` line count: 1..9999999, bounded so an absurd count can't be
 # smuggled in.
 _TAIL_COUNT_RE = r'[1-9][0-9]{0,6}'
-# `tail -n <N> <mod_out log>` — last N lines of an append-only log (e.g. dmesg).
-_MOD_OUT_TAIL_RE = re.compile(
-    rf'^tail -n {_TAIL_COUNT_RE} {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
-    r'/mod_out/run/[A-Za-z0-9_\-]+\.log$'
-)
+
 # gathered path segment: alnum/_/./- with leading dot allowed (e.g.
 # `.placeholder`); the lookahead rejects `.`/`..` so traversal stays blocked.
 _GATHERED_SEG = r'(?:/(?!\.\.?(?:/|$))[A-Za-z0-9_.][A-Za-z0-9_.\-]*)+'
+
+# Read-back paths are target-controlled and cat/tail/grep follow symlinks, so
+# each read-back command is prefixed with a `[ ! -L <path> ] && ` guard. The
+# guard path and the reader path are the same backreferenced token, so the
+# guarded path and the read path can't differ.
+_NO_SYMLINK_GROUP = 'readpath'
+
+
+def _no_symlink_guard(path: str) -> str:
+    """Return ``[ ! -L <path> ] && `` -- refuse to read a symlinked path."""
+    return f'[ ! -L {path} ] && '
+
+
+def _no_symlink_re(path_pattern: str) -> str:
+    """Guard fragment capturing the path for the reader to backreference."""
+    return rf'\[ ! -L (?P<{_NO_SYMLINK_GROUP}>{path_pattern}) \] && '
+
+
+def _read_path_backref() -> str:
+    """Backreference to the path captured by :func:`_no_symlink_re`."""
+    return rf'(?P={_NO_SYMLINK_GROUP})'
+
+
+_MOD_OUT_LOG_PATH = (
+    rf'{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
+    r'/mod_out/run/[A-Za-z0-9_\-]+\.log'
+)
+_GATHERED_FILE_PATH = (
+    rf'{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
+    r'/gathered_out/[A-Za-z0-9_\-]+'
+    rf'{_GATHERED_SEG}'
+)
+
+# `cat <mod_out log>` — non-gathered modules.
+_MOD_OUT_LOG_RE = re.compile(
+    rf'^{_no_symlink_re(_MOD_OUT_LOG_PATH)}cat {_read_path_backref()}$'
+)
+# `tail -n <N> <mod_out log>` — append-only logs (e.g. dmesg).
+_MOD_OUT_TAIL_RE = re.compile(
+    rf'^{_no_symlink_re(_MOD_OUT_LOG_PATH)}tail -n {_TAIL_COUNT_RE} '
+    rf'{_read_path_backref()}$'
+)
+# `cat <gathered file>`.
 _GATHERED_READ_CMD_RE = re.compile(
-    rf'^cat {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
-    r'/gathered_out/[A-Za-z0-9_\-]+'
-    rf'{_GATHERED_SEG}$'
+    rf'^{_no_symlink_re(_GATHERED_FILE_PATH)}cat {_read_path_backref()}$'
 )
-# `tail -n <N> <gathered file>` — last N lines of an append-only gathered log
-# (e.g. messages, yumlog).
+# `tail -n <N> <gathered file>` — append-only gathered logs (e.g. messages).
 _GATHERED_TAIL_CMD_RE = re.compile(
-    rf'^tail -n {_TAIL_COUNT_RE} {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
-    r'/gathered_out/[A-Za-z0-9_\-]+'
-    rf'{_GATHERED_SEG}$'
+    rf'^{_no_symlink_re(_GATHERED_FILE_PATH)}tail -n {_TAIL_COUNT_RE} '
+    rf'{_read_path_backref()}$'
 )
-# `find <gathered_out>/<module> -type f` for listing gathered files when the
-# caller hasn't curated GATHEREDDIR_FILES and hasn't supplied `files`.
+# `find <gathered_out>/<module> -type f ! -type l` — list gathered files.
+# `! -type l` drops symlinks so a planted one is never listed then read back.
 _GATHERED_LIST_CMD_RE = re.compile(
     rf'^find {re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
-    r'/gathered_out/[A-Za-z0-9_\-]+ -type f$'
+    r'/gathered_out/[A-Za-z0-9_\-]+ -type f ! -type l$'
 )
-# `grep -hE '^(KEY1|KEY2|...)=' <gathered file>` — used by modules that
-# should only return matching lines for caller-supplied keys (e.g.
-# kernelconfig, where each config file is large and only specific
-# CONFIG_* settings matter). Each key is a bare identifier (alnum/_).
+# `grep -hE '^(KEY1|...)=' <gathered file>` — return only caller-supplied keys
+# (e.g. kernelconfig CONFIG_* settings). Keys are bare identifiers.
 _GATHERED_GREP_CMD_RE = re.compile(
-    r"^grep -hE '\^\("
+    rf"^{_no_symlink_re(_GATHERED_FILE_PATH)}grep -hE '\^\("
     r'[A-Za-z0-9_]+(?:\|[A-Za-z0-9_]+)*'
     r"\)=' "
-    rf'{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
-    r'/gathered_out/[A-Za-z0-9_\-]+'
-    rf'{_GATHERED_SEG}$'
+    rf'{_read_path_backref()}$'
 )
-# `grep -vE '^[[:space:]]*#' <gathered file>` — strips comment lines
-# (leading-whitespace `#`) before returning the file. Used for config
-# modules whose files are dominated by comments (e.g. sysctlconf,
-# nsswitch).
+# `grep -vE '^[[:space:]]*#' <gathered file>` — strip comment lines from
+# comment-heavy config files (e.g. sysctlconf, nsswitch).
 _GATHERED_NOCOMMENT_CMD_RE = re.compile(
-    r"^grep -vE '\^\[\[:space:\]\]\*#' "
-    rf'{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
-    r'/gathered_out/[A-Za-z0-9_\-]+'
-    rf'{_GATHERED_SEG}$'
+    rf"^{_no_symlink_re(_GATHERED_FILE_PATH)}grep -vE '\^\[\[:space:\]\]\*#' "
+    rf'{_read_path_backref()}$'
 )
-# `grep -hE '^(K1|K2|...)[ \t]*=' <mod_out log>` — sysctl-style grep on
-# collect-class module logs where keys contain dots (e.g. net.ipv4.ip_forward).
+# `grep -hE '^(K1|...)[ \t]*=' <mod_out log>` — sysctl-style keys with dots.
 _LOG_SYSCTL_GREP_CMD_RE = re.compile(
-    r"^grep -hE '\^\("
+    rf"^{_no_symlink_re(_MOD_OUT_LOG_PATH)}grep -hE '\^\("
     r'[A-Za-z0-9_.]+(?:\|[A-Za-z0-9_.]+)*'
     r"\)\[ \\t\]\*=' "
-    rf'{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
-    r'/mod_out/run/[A-Za-z0-9_\-]+\.log$'
+    rf'{_read_path_backref()}$'
 )
-# `grep -hF -e KEY1 -e KEY2 ... <mod_out log>` — fixed-string grep on
-# collect-class module logs (e.g. dpkgpackages, rpmpackages). Keys may
-# contain alphanumeric, dot, hyphen, and plus characters.
+# `grep -hF -e K1 -e K2 ... <mod_out log> || true` — fixed-string grep on
+# collect-class logs (e.g. dpkgpackages). `|| true` runs after the reader.
 _LOG_FIXED_GREP_CMD_RE = re.compile(
-    r'^grep -hF'
+    rf'^{_no_symlink_re(_MOD_OUT_LOG_PATH)}grep -hF'
     r'(?: -e [A-Za-z0-9_.+\-]+)+'
     r' '
-    rf'{re.escape(EC2RL_OUTPUT_BASE_DIR)}/{_TIMESTAMP_RE}'
-    r'/mod_out/run/[A-Za-z0-9_\-]+\.log \|\| true$'
+    rf'{_read_path_backref()} \|\| true$'
 )
 
 

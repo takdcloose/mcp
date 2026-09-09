@@ -31,6 +31,7 @@ from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.commands import (
     _MOD_OUT_TAIL_RE,
     _OUTPUT_DIR_RE,
     _PERFIMPACT_FLAG,
+    _no_symlink_guard,
     validate_arg_value,
 )
 from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.registry import GATHEREDDIR_FILES
@@ -184,11 +185,12 @@ class Ec2rlModule:
         """
         if not _OUTPUT_DIR_RE.fullmatch(output_dir):
             raise ValueError(f'Invalid ec2rl output directory: {output_dir}')
+        path = f'{output_dir}/{self.log_subpath}'
         if tail_lines is None:
-            return f'cat {output_dir}/{self.log_subpath}'
+            return f'{_no_symlink_guard(path)}cat {path}'
         if not isinstance(tail_lines, int) or tail_lines < 1:
             raise ValueError(f'Invalid tail line count: {tail_lines!r}')
-        cmd = f'tail -n {tail_lines} {output_dir}/{self.log_subpath}'
+        cmd = f'{_no_symlink_guard(path)}tail -n {tail_lines} {path}'
         if not _MOD_OUT_TAIL_RE.fullmatch(cmd):
             raise ValueError(f'Invalid log tail command for module {self.name!r}')
         return cmd
@@ -229,9 +231,10 @@ class Ec2rlModule:
         for rel in rels:
             path = f'{output_dir}/gathered_out/{self.name}/{rel}'
             if tail_lines is None:
-                cmd, pattern = f'cat {path}', _GATHERED_READ_CMD_RE
+                cmd, pattern = f'{_no_symlink_guard(path)}cat {path}', _GATHERED_READ_CMD_RE
             else:
-                cmd, pattern = f'tail -n {tail_lines} {path}', _GATHERED_TAIL_CMD_RE
+                cmd = f'{_no_symlink_guard(path)}tail -n {tail_lines} {path}'
+                pattern = _GATHERED_TAIL_CMD_RE
             if not pattern.fullmatch(cmd):
                 raise ValueError(
                     f'Invalid gathered file path for module {self.name!r}: {rel!r}'
@@ -241,19 +244,21 @@ class Ec2rlModule:
 
     def is_valid_gathered_relpath(self, output_dir: str, rel_path: str) -> bool:
         """True if ``rel_path`` produces an allowlisted gathered ``cat`` command."""
-        cmd = f'cat {output_dir}/gathered_out/{self.name}/{rel_path}'
+        path = f'{output_dir}/gathered_out/{self.name}/{rel_path}'
+        cmd = f'{_no_symlink_guard(path)}cat {path}'
         return bool(_GATHERED_READ_CMD_RE.fullmatch(cmd))
 
     def gathered_list_command(self, output_dir: str) -> str:
-        """Return ``find <output_dir>/gathered_out/<name> -type f`` for listing.
+        """Return ``find <output_dir>/gathered_out/<name> -type f ! -type l``.
 
-        Used when the caller hasn't curated :data:`GATHEREDDIR_FILES` for this
-        module and hasn't supplied a ``files`` argument — the AI can read this
-        listing and choose which files to read on a follow-up call.
+        Lists gathered files when the caller hasn't curated
+        :data:`GATHEREDDIR_FILES` or supplied ``files``. ``! -type l`` excludes
+        symlinks; the listing is untrusted, so each returned path is re-checked
+        by :meth:`is_valid_gathered_relpath` before any read.
         """
         if not _OUTPUT_DIR_RE.fullmatch(output_dir):
             raise ValueError(f'Invalid ec2rl output directory: {output_dir}')
-        cmd = f'find {output_dir}/gathered_out/{self.name} -type f'
+        cmd = f'find {output_dir}/gathered_out/{self.name} -type f ! -type l'
         if not _GATHERED_LIST_CMD_RE.fullmatch(cmd):
             raise ValueError(f'Invalid gathered list command: {cmd!r}')
         return cmd
@@ -285,10 +290,8 @@ class Ec2rlModule:
                 seen.add(key)
                 unique_keys.append(key)
         pattern = '|'.join(unique_keys)
-        cmd = (
-            f"grep -hE '^({pattern})=' "
-            f'{output_dir}/gathered_out/{self.name}/{rel_path}'
-        )
+        path = f'{output_dir}/gathered_out/{self.name}/{rel_path}'
+        cmd = f"{_no_symlink_guard(path)}grep -hE '^({pattern})=' {path}"
         if not _GATHERED_GREP_CMD_RE.fullmatch(cmd):
             raise ValueError(
                 f'Invalid gathered grep command for module {self.name!r}: '
@@ -316,10 +319,8 @@ class Ec2rlModule:
                 seen.add(key)
                 unique_keys.append(key)
         pattern = '|'.join(unique_keys)
-        cmd = (
-            f"grep -hE '^({pattern})[ \\t]*=' "
-            f'{output_dir}/mod_out/run/{self.name}.log'
-        )
+        path = f'{output_dir}/mod_out/run/{self.name}.log'
+        cmd = f"{_no_symlink_guard(path)}grep -hE '^({pattern})[ \\t]*=' {path}"
         if not _LOG_SYSCTL_GREP_CMD_RE.fullmatch(cmd):
             raise ValueError(
                 f'Invalid log sysctl grep command for module {self.name!r}'
@@ -347,10 +348,8 @@ class Ec2rlModule:
                 seen.add(key)
                 unique_keys.append(key)
         args = ' '.join(f'-e {k}' for k in unique_keys)
-        cmd = (
-            f'grep -hF {args} '
-            f'{output_dir}/mod_out/run/{self.name}.log || true'
-        )
+        path = f'{output_dir}/mod_out/run/{self.name}.log'
+        cmd = f'{_no_symlink_guard(path)}grep -hF {args} {path} || true'
         if not _LOG_FIXED_GREP_CMD_RE.fullmatch(cmd):
             raise ValueError(
                 f'Invalid log grep command for module {self.name!r}'
@@ -366,10 +365,8 @@ class Ec2rlModule:
         """
         if not _OUTPUT_DIR_RE.fullmatch(output_dir):
             raise ValueError(f'Invalid ec2rl output directory: {output_dir}')
-        cmd = (
-            f"grep -vE '^[[:space:]]*#' "
-            f'{output_dir}/gathered_out/{self.name}/{rel_path}'
-        )
+        path = f'{output_dir}/gathered_out/{self.name}/{rel_path}'
+        cmd = f"{_no_symlink_guard(path)}grep -vE '^[[:space:]]*#' {path}"
         if not _GATHERED_NOCOMMENT_CMD_RE.fullmatch(cmd):
             raise ValueError(
                 f'Invalid gathered nocomment command for module {self.name!r}: '
