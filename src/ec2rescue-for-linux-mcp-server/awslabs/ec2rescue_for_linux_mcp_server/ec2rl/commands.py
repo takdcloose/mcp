@@ -38,8 +38,12 @@ _PERFIMPACT_FLAG = '--perfimpact=true'
 
 # Allowed characters in argument values: alphanumeric, dot, hyphen, underscore, slash
 _ARG_VALUE_RE = re.compile(r'^[A-Za-z0-9._/\-]+$')
-# Allowed module names and arg keys: alphanumeric, hyphen, underscore
+# Allowed module names: alphanumeric, hyphen, underscore
 _IDENTIFIER_RE = re.compile(r'^[A-Za-z0-9_\-]+$')
+# Allowed argument keys: like an identifier but must start alphanumeric, since
+# a key is interpolated into `--<key>=` and a leading hyphen would produce
+# `---key=`.
+_ARG_KEY_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_\-]*$')
 
 # journalctl --since=/--until= args (journal, kernelpanic, hungtasks, etc.).
 _TIME_ARG_KEYS = frozenset({'since', 'until'})
@@ -282,6 +286,8 @@ def validate_command(
         if '=' not in kv:
             return False
         key, _, value = kv.partition('=')
+        if not _ARG_KEY_RE.fullmatch(key):
+            return False
         if key not in allowed_keys:
             return False
         if not validate_arg_value(key, value):

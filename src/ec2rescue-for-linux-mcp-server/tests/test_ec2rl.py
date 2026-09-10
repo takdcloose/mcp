@@ -597,3 +597,90 @@ class TestTimestampShape:
         """Timestamps that deviate from the exact ec2rl shape are rejected."""
         path = f'/var/tmp/ec2rl/{ts}/mod_out/run/dmesg.log'
         assert validate_log_read_command(f'[ ! -L {path} ] && cat {path}') is False
+
+
+class TestArgKeyValidation:
+    """Argument keys are interpolated into ``--<key>=`` and must be identifiers.
+
+    An unvalidated key with shell metacharacters or a leading hyphen would
+    break out of the intended flag when the command is built.
+    """
+
+    @pytest.mark.parametrize(
+        'bad_key',
+        (
+            'x;id',      # command separator
+            'a b',       # space
+            'x|id',      # pipe
+            'x$(id)',    # command substitution
+            '-flag',     # leading hyphen -> ---flag=
+            '--flag',    # leading hyphens
+            'x=1',       # embedded equals
+            'x\nid',     # newline
+            '',          # empty
+        ),
+    )
+    def test_reject_unsafe_optional_key(self, bad_key):
+        """A module with an unsafe optional arg key is rejected at construction."""
+        with pytest.raises(ValueError, match='Invalid argument key'):
+            Ec2rlModule('m', 'mod_out/run/m.log', optional_args=[bad_key])
+
+    @pytest.mark.parametrize(
+        'bad_key',
+        ('x;id', '-flag', 'a b'),
+    )
+    def test_reject_unsafe_required_key(self, bad_key):
+        """required_args is validated the same way as optional_args."""
+        with pytest.raises(ValueError, match='Invalid argument key'):
+            Ec2rlModule('m', 'mod_out/run/m.log', required_args=[bad_key])
+
+    @pytest.mark.parametrize(
+        'good_key',
+        ('times', 'since', 'until', 'interface', 'pid', 'period', 'x_1', 'a-b'),
+    )
+    def test_accept_plain_identifier_keys(self, good_key):
+        """Real ec2rl arg keys (plain identifiers) are accepted."""
+        module = Ec2rlModule('m', 'mod_out/run/m.log', optional_args=[good_key])
+        assert module.optional_args == [good_key]
+
+
+class TestHelptextSanitization:
+    """helptext is surfaced in tool descriptions and may be untrusted."""
+
+    def test_control_characters_stripped(self):
+        """Control characters (NUL, ESC) are removed from helptext."""
+        module = Ec2rlModule(
+            'm', 'mod_out/run/m.log', helptext='safe\x00text\x1b[31m'
+        )
+        assert '\x00' not in module.helptext
+        assert '\x1b' not in module.helptext
+        assert 'safe' in module.helptext
+
+    def test_length_is_capped(self):
+        """Overlong helptext is truncated to the cap."""
+        module = Ec2rlModule('m', 'mod_out/run/m.log', helptext='x' * 5000)
+        assert len(module.helptext) <= 500
+
+    def test_ordinary_helptext_preserved(self):
+        """Normal helptext with spaces is preserved unchanged."""
+        text = 'Collects kernel logs for the last boot.'
+        module = Ec2rlModule('m', 'mod_out/run/m.log', helptext=text)
+        assert module.helptext == text
+
+
+class TestValidateCommandRejectsUnsafeKeyToken:
+    """validate_command (layer 2) must reject an unsafe --key token itself.
+
+    Even if a module somehow carried an unsafe key, the run-command validator
+    re-checks each key so it is at least as strict as command construction.
+    """
+
+    def test_metachar_key_token_rejected(self):
+        """A --key token whose key has metacharacters is rejected."""
+        # Force an unsafe key past __init__ validation so the token check in
+        # validate_command is what is under test.
+        module = Ec2rlModule('top', 'mod_out/run/top.log', required_args=['times'])
+        module.optional_args = ['x;id']
+        registry = {'top': module}
+        command = 'ec2rl run --only-modules=top --x;id=5'
+        assert validate_command(command, registry) is False

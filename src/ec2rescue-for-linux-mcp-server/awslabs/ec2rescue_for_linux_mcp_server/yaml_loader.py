@@ -70,20 +70,26 @@ def _module_from_yaml_doc(doc: dict) -> Ec2rlModule | None:
     if not isinstance(constraint, dict):
         constraint = {}
 
-    return Ec2rlModule(
-        name=name,
-        log_subpath=f'mod_out/run/{name}.log',
-        title=str(doc.get('title') or ''),
-        helptext=str(doc.get('helptext') or ''),
-        required_args=_parse_space_separated(constraint.get('required')),
-        optional_args=_parse_space_separated(constraint.get('optional')),
-        remediation=_parse_bool(doc.get('remediation')),
-        constraint_class=str(constraint.get('class') or ''),
-        domain=str(constraint.get('domain') or ''),
-        package=_parse_package(doc.get('package')),
-        software=str(constraint.get('software') or '').strip(),
-        perfimpact=_parse_bool(constraint.get('perfimpact')),
-    )
+    try:
+        return Ec2rlModule(
+            name=name,
+            log_subpath=f'mod_out/run/{name}.log',
+            title=str(doc.get('title') or ''),
+            helptext=str(doc.get('helptext') or ''),
+            required_args=_parse_space_separated(constraint.get('required')),
+            optional_args=_parse_space_separated(constraint.get('optional')),
+            remediation=_parse_bool(doc.get('remediation')),
+            constraint_class=str(constraint.get('class') or ''),
+            domain=str(constraint.get('domain') or ''),
+            package=_parse_package(doc.get('package')),
+            software=str(constraint.get('software') or '').strip(),
+            perfimpact=_parse_bool(constraint.get('perfimpact')),
+        )
+    except ValueError:
+        # Ec2rlModule rejects unsafe fields (bad name, arg keys with shell
+        # metacharacters, etc.). Treat that module as invalid rather than
+        # letting one bad definition abort the whole load.
+        return None
 
 
 def load_modules_from_yaml_dir(

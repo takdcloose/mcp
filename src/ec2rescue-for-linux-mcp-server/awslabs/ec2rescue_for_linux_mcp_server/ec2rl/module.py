@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.commands import (
+    _ARG_KEY_RE,
     _EC2RL_RUN_PREFIX,
     _EC2RL_SOFTWARE_CHECK_CMD,
     _GATHERED_GREP_CMD_RE,
@@ -35,6 +36,34 @@ from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.commands import (
     validate_arg_value,
 )
 from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.registry import GATHEREDDIR_FILES
+
+
+# helptext comes from module YAML, which may be untrusted (see --mod-dir).
+# It is surfaced in tool descriptions, so cap its length and drop control
+# characters before storing it.
+_MAX_HELPTEXT_LEN = 500
+
+
+def _sanitize_helptext(helptext: str) -> str:
+    """Strip control characters from helptext and cap its length."""
+    cleaned = ''.join(c for c in helptext if c == ' ' or c.isprintable())
+    return cleaned[:_MAX_HELPTEXT_LEN]
+
+
+def _validate_arg_keys(module_name: str, keys: list[str] | None) -> list[str]:
+    """Return the arg-key list, rejecting any key that is not a plain identifier.
+
+    Argument keys are interpolated into ``--<key>=<value>`` on the command
+    line, so a key with shell metacharacters or a leading hyphen would break
+    out of the intended flag.
+    """
+    result = list(keys) if keys else []
+    for key in result:
+        if not isinstance(key, str) or not _ARG_KEY_RE.fullmatch(key):
+            raise ValueError(
+                f'Invalid argument key for module {module_name!r}: {key!r}'
+            )
+    return result
 
 
 class Ec2rlModule:
@@ -59,15 +88,15 @@ class Ec2rlModule:
         software: str = '',
         perfimpact: bool = False,
     ):
-        """Initialize from YAML fields; raises ValueError on unsafe name/package/software."""
+        """Initialize from YAML fields; raises ValueError on unsafe fields."""
         if not _IDENTIFIER_RE.fullmatch(name):
             raise ValueError(f'Invalid module name: {name!r}')
         self.name = name
         self.log_subpath = log_subpath
         self.title = title
-        self.helptext = helptext
-        self.required_args = list(required_args) if required_args else []
-        self.optional_args = list(optional_args) if optional_args else []
+        self.helptext = _sanitize_helptext(helptext)
+        self.required_args = _validate_arg_keys(name, required_args)
+        self.optional_args = _validate_arg_keys(name, optional_args)
         self.remediation = remediation
         self.constraint_class = constraint_class
         self.domain = domain
