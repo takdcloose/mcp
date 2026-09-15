@@ -38,6 +38,11 @@ the instance wrote, so a compromised instance can return misleading diagnostic
 output. The server treats gathered output as untrusted data to surface to the
 operator, not as trusted input.
 
+**Module definitions.** The server only loads its bundled `mod.d/` module
+definitions, which decide the `ec2rl` commands it will run. They are verified
+at load time against a checksum manifest, and the server refuses to start if a
+definition has been modified without the manifest being regenerated.
+
 When using the Streamable HTTP transport, see
 [HTTP Mode Security Considerations](#-http-mode-security-considerations) under
 Authentication.
@@ -281,7 +286,6 @@ Additional environment variables for `AUTH_TYPE=oauth`:
 | `--remediate` | off | Register remediation modules (openssh, rebuildinitrd, etc.). |
 | `--allow-install` | off | Allow `install_ec2rescue_linux` without elicitation consent. |
 | `--allow-perfimpact` | off | Permit perfimpact modules (tcpdump, perf, strace). Off by default — only a human operator can enable this at server startup; agents cannot turn it on. |
-| `--mod-dir PATH` | bundled `mod.d/` | Override module YAML directory. |
 | `--transport {stdio,streamable-http}` | `stdio` | MCP transport. |
 | `--host HOST` | `127.0.0.1` | Bind host (streamable-http only). |
 | `--port PORT` | `8000` | Bind port (streamable-http only). |
