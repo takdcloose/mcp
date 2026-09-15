@@ -28,6 +28,9 @@ SSM_POLL_INTERVAL_SECONDS: float = 2.0
 DEFAULT_AWS_REGION: str = 'us-east-1'
 SERVER_NAME: str = 'awslabs.ec2rescue-for-linux-mcp-server'
 DEFAULT_MOD_DIR: str = 'mod.d'  # bundled mod.d/, resolved by server.main()
+# Checksum manifest for the bundled mod.d/, verified at load time. Lives
+# alongside mod.d/ (as a sibling, not inside it) so it is not self-referential.
+MOD_MANIFEST_NAME: str = 'mod.d.sha256'
 
 BOTO_CONFIG: Config = Config(
     user_agent_extra=f'md/awslabs#mcp#ec2rescue-for-linux-mcp-server#{__version__}'

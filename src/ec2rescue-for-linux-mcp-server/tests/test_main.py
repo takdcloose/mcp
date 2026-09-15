@@ -51,26 +51,14 @@ class TestParseArgs:
     """Tests for the _parse_args helper."""
 
     def test_defaults(self):
-        """Default args: remediate=False, mod_dir=None."""
+        """Default args: remediate=False."""
         args = _parse_args([])
         assert args.remediate is False
-        assert args.mod_dir is None
 
     def test_remediate_flag(self):
         """--remediate sets remediate=True."""
         args = _parse_args(['--remediate'])
         assert args.remediate is True
-
-    def test_mod_dir_override(self):
-        """--mod-dir overrides the default."""
-        args = _parse_args(['--mod-dir', '/tmp/custom-mod.d'])
-        assert args.mod_dir == '/tmp/custom-mod.d'
-
-    def test_both_flags(self):
-        """Both flags can be combined."""
-        args = _parse_args(['--remediate', '--mod-dir', '/tmp/x'])
-        assert args.remediate is True
-        assert args.mod_dir == '/tmp/x'
 
     def test_default_transport_is_stdio(self):
         """Default transport/host/port: stdio with no host/port override."""
@@ -130,10 +118,10 @@ class TestMain:
     """Tests for main() with the new argparse + dynamic registration flow."""
 
     def test_default_loads_only_curated_modules(
-        self, sample_mod_dir, restore_registry
+        self, restore_registry
     ):
         """Without --all, only DEFAULT_MODULES are registered."""
-        argv = ['prog', '--mod-dir', sample_mod_dir]
+        argv = ['prog']
         with patch.object(sys, 'argv', argv), patch.object(mcp, 'run') as mock_run:
             main()
         mock_run.assert_called_once()
@@ -145,10 +133,10 @@ class TestMain:
         assert 'openssh' not in names  # remediation excluded by default
 
     def test_all_flag_loads_all_modules(
-        self, sample_mod_dir, restore_registry
+        self, restore_registry
     ):
         """With --all, all non-remediation modules are included."""
-        argv = ['prog', '--all', '--mod-dir', sample_mod_dir]
+        argv = ['prog', '--all']
         with patch.object(sys, 'argv', argv), patch.object(mcp, 'run') as mock_run:
             main()
         mock_run.assert_called_once()
@@ -158,10 +146,10 @@ class TestMain:
         assert 'openssh' not in names  # remediation still excluded
 
     def test_all_with_remediate_loads_everything(
-        self, sample_mod_dir, restore_registry
+        self, restore_registry
     ):
         """With --all --remediate, remediation modules are included."""
-        argv = ['prog', '--all', '--remediate', '--mod-dir', sample_mod_dir]
+        argv = ['prog', '--all', '--remediate']
         with patch.object(sys, 'argv', argv), patch.object(mcp, 'run') as mock_run:
             main()
         mock_run.assert_called_once()
@@ -170,10 +158,10 @@ class TestMain:
         assert 'openssh' in names
 
     def test_modules_flag_adds_extras(
-        self, sample_mod_dir, restore_registry
+        self, restore_registry
     ):
         """--modules=tcpdump adds tcpdump beyond the default set."""
-        argv = ['prog', '--modules=tcpdump', '--mod-dir', sample_mod_dir]
+        argv = ['prog', '--modules=tcpdump']
         with patch.object(sys, 'argv', argv), patch.object(mcp, 'run'):
             main()
 
@@ -182,10 +170,10 @@ class TestMain:
         assert 'tcpdump' in names  # added via --modules
 
     def test_registers_mcp_tools_for_modules(
-        self, sample_mod_dir, restore_registry
+        self, restore_registry
     ):
         """main() registers run_ec2rescue_linux_<name> tools only for selected modules."""
-        argv = ['prog', '--mod-dir', sample_mod_dir]
+        argv = ['prog']
         with patch.object(sys, 'argv', argv), patch.object(mcp, 'run'):
             main()
 
@@ -196,10 +184,10 @@ class TestMain:
         assert 'run_ec2rescue_linux_openssh' not in registered
 
     def test_dynamic_instructions_swapped_in(
-        self, sample_mod_dir, restore_registry
+        self, restore_registry
     ):
         """main() replaces the FastMCP instructions with a dynamic build."""
-        argv = ['prog', '--mod-dir', sample_mod_dir]
+        argv = ['prog']
         with patch.object(sys, 'argv', argv), patch.object(mcp, 'run'):
             main()
 
@@ -213,22 +201,20 @@ class TestMainTransport:
     """Tests for transport selection and host/port wiring in main()."""
 
     def test_main_default_calls_stdio(
-        self, sample_mod_dir, restore_registry, restore_mcp_settings
+        self, restore_registry, restore_mcp_settings
     ):
         """No --transport flag → mcp.run(transport='stdio')."""
-        argv = ['prog', '--mod-dir', sample_mod_dir]
+        argv = ['prog']
         with patch.object(sys, 'argv', argv), patch.object(mcp, 'run') as mock_run:
             main()
         mock_run.assert_called_once_with(transport='stdio')
 
     def test_main_streamable_http_passes_transport(
-        self, sample_mod_dir, restore_registry, restore_mcp_settings
+        self, restore_registry, restore_mcp_settings
     ):
         """--transport streamable-http applies host/port and runs HTTP."""
         argv = [
             'prog',
-            '--mod-dir',
-            sample_mod_dir,
             '--transport',
             'streamable-http',
             '--host',
@@ -247,7 +233,7 @@ class TestMainTransport:
         assert mcp.settings.port == 9999
 
     def test_main_warns_on_host_under_stdio(
-        self, sample_mod_dir, restore_registry, restore_mcp_settings
+        self, restore_registry, restore_mcp_settings
     ):
         """--host under stdio is ignored with a warning, settings unchanged."""
         from loguru import logger
@@ -256,7 +242,7 @@ class TestMainTransport:
         captured: list[str] = []
         sink_id = logger.add(lambda msg: captured.append(str(msg)), level='WARNING')
         try:
-            argv = ['prog', '--mod-dir', sample_mod_dir, '--host', '1.2.3.4']
+            argv = ['prog', '--host', '1.2.3.4']
             with patch.object(sys, 'argv', argv), patch.object(mcp, 'run') as mock_run:
                 main()
         finally:

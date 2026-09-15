@@ -47,15 +47,3 @@ def mock_ctx():
 def mock_session():
     """Create a mock boto3 Session."""
     return MagicMock()
-
-
-@pytest.fixture()
-def sample_mod_dir():
-    """Path to the bundled ``mod.d`` directory of ec2rl module YAML files.
-
-    main()-level tests load real modules from here (dmesg, top, tcpdump,
-    openssh, ...) to exercise selection/registration.
-    """
-    from awslabs.ec2rescue_for_linux_mcp_server.server import _default_mod_dir
-
-    return _default_mod_dir()

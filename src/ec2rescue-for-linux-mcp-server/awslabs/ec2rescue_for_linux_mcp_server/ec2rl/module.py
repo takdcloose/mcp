@@ -38,9 +38,8 @@ from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.commands import (
 from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.registry import GATHEREDDIR_FILES
 
 
-# helptext comes from module YAML, which may be untrusted (see --mod-dir).
-# It is surfaced in tool descriptions, so cap its length and drop control
-# characters before storing it.
+# helptext comes from module YAML. It is surfaced in tool descriptions, so
+# cap its length and drop control characters before storing it.
 _MAX_HELPTEXT_LEN = 500
 
 
@@ -60,9 +59,7 @@ def _validate_arg_keys(module_name: str, keys: list[str] | None) -> list[str]:
     result = list(keys) if keys else []
     for key in result:
         if not isinstance(key, str) or not _ARG_KEY_RE.fullmatch(key):
-            raise ValueError(
-                f'Invalid argument key for module {module_name!r}: {key!r}'
-            )
+            raise ValueError(f'Invalid argument key for module {module_name!r}: {key!r}')
     return result
 
 

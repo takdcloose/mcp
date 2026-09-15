@@ -14,13 +14,74 @@
 
 """YAML loader for EC2 Rescue Linux module definitions in ``mod.d/``."""
 
+import hashlib
 import os
 import yaml
+from awslabs.ec2rescue_for_linux_mcp_server.consts import MOD_MANIFEST_NAME
 from awslabs.ec2rescue_for_linux_mcp_server.ec2rl import Ec2rlModule
 from loguru import logger
 
 
 _EC2RL_MODULE_TAG = '!ec2rlcore.module.Module'
+_HASH_CHUNK_SIZE = 65536
+
+
+class ModuleManifestError(Exception):
+    """Raised when the bundled mod.d/ does not match its checksum manifest."""
+
+
+def _sha256_file(path: str) -> str:
+    """Return the hex SHA-256 of a file, read in chunks."""
+    digest = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(_HASH_CHUNK_SIZE), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def compute_mod_manifest(mod_dir: str) -> str:
+    r"""Return the manifest text for every ``*.yaml`` in ``mod_dir``.
+
+    Format is one ``<sha256>  <filename>`` line per YAML file, sorted by
+    filename, so the manifest is deterministic and diffable.
+
+    After a legitimate change to ``mod.d/``, regenerate the sibling
+    ``mod.d.sha256`` (run from the package root) so load-time verification
+    keeps passing::
+
+        uv run python -c "from awslabs.ec2rescue_for_linux_mcp_server.yaml_loader \\
+            import compute_mod_manifest as c; \\
+            open('awslabs/ec2rescue_for_linux_mcp_server/mod.d.sha256','w')\\
+            .write(c('awslabs/ec2rescue_for_linux_mcp_server/mod.d'))"
+    """
+    lines = []
+    for filename in sorted(os.listdir(mod_dir)):
+        if not filename.endswith('.yaml'):
+            continue
+        digest = _sha256_file(os.path.join(mod_dir, filename))
+        lines.append(f'{digest}  {filename}')
+    return '\n'.join(lines) + '\n'
+
+
+def verify_mod_manifest(mod_dir: str) -> None:
+    """Verify ``mod_dir`` against its sibling checksum manifest.
+
+    Raises :class:`ModuleManifestError` if the manifest is missing or any
+    YAML file has been added, removed, or changed. This is fail-closed: the
+    server must not start on a mismatch.
+    """
+    manifest_path = os.path.join(os.path.dirname(mod_dir.rstrip('/')), MOD_MANIFEST_NAME)
+    if not os.path.isfile(manifest_path):
+        raise ModuleManifestError(f'Module checksum manifest not found: {manifest_path}')
+    with open(manifest_path, 'r', encoding='utf-8') as f:
+        expected = f.read()
+    actual = compute_mod_manifest(mod_dir)
+    if actual != expected:
+        raise ModuleManifestError(
+            f'Bundled module definitions do not match {MOD_MANIFEST_NAME}; '
+            'the mod.d/ directory has been modified without regenerating the '
+            'manifest.'
+        )
 
 
 def _parse_space_separated(value: object) -> list[str]:
@@ -95,11 +156,21 @@ def _module_from_yaml_doc(doc: dict) -> Ec2rlModule | None:
 def load_modules_from_yaml_dir(
     mod_dir: str,
     include_remediation: bool = False,
+    verify: bool = True,
 ) -> dict[str, Ec2rlModule]:
-    """Load ``*.yaml`` from ``mod_dir``; skips remediation modules unless enabled."""
+    """Load ``*.yaml`` from ``mod_dir``; skips remediation modules unless enabled.
+
+    When ``verify`` is true, the directory is first checked against its
+    checksum manifest and :class:`ModuleManifestError` is raised on a mismatch
+    (fail-closed). The server always verifies; tests that build ad-hoc
+    directories pass ``verify=False``.
+    """
     if not os.path.isdir(mod_dir):
         logger.warning(f'Module directory does not exist: {mod_dir}')
         return {}
+
+    if verify:
+        verify_mod_manifest(mod_dir)
 
     modules: dict[str, Ec2rlModule] = {}
     for filename in sorted(os.listdir(mod_dir)):

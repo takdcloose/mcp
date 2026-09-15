@@ -35,7 +35,10 @@ from awslabs.ec2rescue_for_linux_mcp_server.consts import (
 from awslabs.ec2rescue_for_linux_mcp_server.elicitation import _install_consent_gate
 from awslabs.ec2rescue_for_linux_mcp_server.responses import InstallResponse, InstanceListResponse
 from awslabs.ec2rescue_for_linux_mcp_server.ssm import list_ssm_instances, run_install_ec2_rescue
-from awslabs.ec2rescue_for_linux_mcp_server.yaml_loader import load_modules_from_yaml_dir
+from awslabs.ec2rescue_for_linux_mcp_server.yaml_loader import (
+    ModuleManifestError,
+    load_modules_from_yaml_dir,
+)
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
 from pydantic import Field
@@ -200,14 +203,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        '--mod-dir',
-        default=None,
-        help=(
-            'Path to the directory containing ec2rl module YAML files. '
-            "Defaults to the bundled 'mod.d/' directory."
-        ),
-    )
-    parser.add_argument(
         '--transport',
         choices=['stdio', 'streamable-http'],
         default='stdio',
@@ -278,7 +273,7 @@ def main():
     global mcp
 
     args = _parse_args()
-    mod_dir = args.mod_dir or _default_mod_dir()
+    mod_dir = _default_mod_dir()
 
     logger.info(
         f'Starting {SERVER_NAME} '
@@ -308,7 +303,13 @@ def main():
             token_verifier=token_verifier,
         )
 
-    all_modules = load_modules_from_yaml_dir(mod_dir, include_remediation=args.remediate)
+    try:
+        all_modules = load_modules_from_yaml_dir(mod_dir, include_remediation=args.remediate)
+    except ModuleManifestError as e:
+        # Fail closed: the bundled definitions were modified without the
+        # checksum manifest being regenerated, so refuse to start.
+        logger.error(f'Refusing to start: {e}')
+        raise SystemExit(1) from e
 
     if args.all:
         modules = all_modules
