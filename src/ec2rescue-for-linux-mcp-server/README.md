@@ -262,7 +262,7 @@ AWS credentials are passed via environment variables. Supported options:
 | Variable | Description |
 |----------|-------------|
 | `AWS_PROFILE` | AWS CLI named profile |
-| `AWS_REGION` | AWS region (default: `us-east-1`) |
+| `AWS_REGION` | AWS region (required unless your `AWS_PROFILE` sets one) |
 | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Static credentials |
 
 ### MCP Client Authentication (Streamable HTTP)

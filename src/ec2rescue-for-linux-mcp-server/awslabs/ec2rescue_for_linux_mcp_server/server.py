@@ -28,7 +28,6 @@ from awslabs.ec2rescue_for_linux_mcp_server import ec2rl as ec2rl_module
 from awslabs.ec2rescue_for_linux_mcp_server import elicitation as _elicitation
 from awslabs.ec2rescue_for_linux_mcp_server.auth import get_server_auth
 from awslabs.ec2rescue_for_linux_mcp_server.consts import (
-    DEFAULT_AWS_REGION,
     DEFAULT_MOD_DIR,
     INSTANCE_ID_PATTERN,
     SERVER_NAME,
@@ -48,17 +47,26 @@ from pydantic import Field
 logger.remove()
 logger.add(sys.stderr, level=os.environ.get('FASTMCP_LOG_LEVEL', 'WARNING'))
 
-aws_region: str = os.environ.get('AWS_REGION', DEFAULT_AWS_REGION)
+aws_region: str | None = os.environ.get('AWS_REGION') or os.environ.get('AWS_DEFAULT_REGION')
 
 try:
     logger.info(
-        f"AWS_REGION={aws_region}, AWS_PROFILE={os.environ.get('AWS_PROFILE')}, "
+        f"AWS_REGION={os.environ.get('AWS_REGION')}, "
+        f"AWS_DEFAULT_REGION={os.environ.get('AWS_DEFAULT_REGION')}, "
+        f"AWS_PROFILE={os.environ.get('AWS_PROFILE')}, "
         f"HOME={os.environ.get('HOME')}"
     )
+    session_kwargs: dict[str, str] = {}
     if aws_profile := os.environ.get('AWS_PROFILE'):
-        session = boto3.Session(profile_name=aws_profile, region_name=aws_region)
-    else:
-        session = boto3.Session(region_name=aws_region)
+        session_kwargs['profile_name'] = aws_profile
+    if aws_region:
+        session_kwargs['region_name'] = aws_region
+    session = boto3.Session(**session_kwargs)
+    if not session.region_name:
+        raise ValueError(
+            'No AWS region configured. Set AWS_REGION, or configure a region '
+            'for your AWS_PROFILE in ~/.aws/config.'
+        )
     logger.info(f'Session region={session.region_name}, profile={session.profile_name}')
 except Exception as e:
     logger.error(f'Error creating AWS session: {str(e)}')
@@ -279,7 +287,7 @@ def main():
 
     logger.info(
         f'Starting {SERVER_NAME} '
-        f'(region={aws_region}, mod_dir={mod_dir}, remediation={args.remediate}, '
+        f'(region={session.region_name}, mod_dir={mod_dir}, remediation={args.remediate}, '
         f'allow_perfimpact={args.allow_perfimpact}, '
         f'all={args.all})'
     )

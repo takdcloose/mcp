@@ -25,7 +25,6 @@ SSM_EXECUTION_TIMEOUT_SECONDS: int = 3600  # agent kills the command after this
 SSM_POLL_DEADLINE_SECONDS: int = 3600  # client gives up polling after this
 SSM_POLL_INTERVAL_SECONDS: float = 2.0
 
-DEFAULT_AWS_REGION: str = 'us-east-1'
 SERVER_NAME: str = 'awslabs.ec2rescue-for-linux-mcp-server'
 DEFAULT_MOD_DIR: str = 'mod.d'  # bundled mod.d/, resolved by server.main()
 # Checksum manifest for the bundled mod.d/, verified at load time. Lives
