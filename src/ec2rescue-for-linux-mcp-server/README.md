@@ -38,6 +38,12 @@ the instance wrote, so a compromised instance can return misleading diagnostic
 output. The server treats gathered output as untrusted data to surface to the
 operator, not as trusted input.
 
+**Diagnostic output left on the instance.** Each run writes a new
+timestamped directory under `/var/tmp/ec2rl/` on the target instance. The
+server only reads that output back — it never deletes it. The files are
+Customer Content on the customer's own instance, so operators should prune
+`/var/tmp/ec2rl/` periodically.
+
 **Module definitions.** The server only loads its bundled `mod.d/` module
 definitions, which decide the `ec2rl` commands it will run. They are verified
 at load time against a checksum manifest, and the server refuses to start if a
