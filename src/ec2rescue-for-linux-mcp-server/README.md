@@ -49,6 +49,20 @@ definitions, which decide the `ec2rl` commands it will run. They are verified
 at load time against a checksum manifest, and the server refuses to start if a
 definition has been modified without the manifest being regenerated.
 
+**Credential guidance.** The server uses the standard boto3 credential chain.
+Prefer `AWS_PROFILE` with SSO or an assumed role configured in `.aws/config`;
+if you set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` directly, you are
+responsible for rotating them.
+
+**Data sensitivity.** Diagnostic output is not redacted before it is returned
+to the AI client and its (possibly third-party) model provider. Output can
+therefore contain secrets, tokens, or PII read from the instance. Some gathered
+modules can return files that are especially likely to contain secrets, for
+example `environment` (`/etc/environment`), `cron` (job command lines),
+`profile` (`/etc/profile`), and `cloudinitlog` (cloud-init may echo user-data).
+Review a module's output sensitivity before running it against a model provider
+you do not control.
+
 When using the Streamable HTTP transport, see
 [HTTP Mode Security Considerations](#-http-mode-security-considerations) under
 Authentication.
