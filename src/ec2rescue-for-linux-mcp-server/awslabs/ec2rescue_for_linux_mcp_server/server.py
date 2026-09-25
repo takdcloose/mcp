@@ -30,6 +30,7 @@ from awslabs.ec2rescue_for_linux_mcp_server.auth import get_server_auth
 from awslabs.ec2rescue_for_linux_mcp_server.consts import (
     DEFAULT_AWS_REGION,
     DEFAULT_MOD_DIR,
+    INSTANCE_ID_PATTERN,
     SERVER_NAME,
 )
 from awslabs.ec2rescue_for_linux_mcp_server.elicitation import _install_consent_gate
@@ -105,6 +106,7 @@ async def install_ec2rescue_linux(
     ctx: Context,
     instance_id: str = Field(
         ...,
+        pattern=INSTANCE_ID_PATTERN,
         description=(
             'The EC2 instance ID to install EC2 Rescue on. '
             'Must be a valid instance ID from the list_instances tool '

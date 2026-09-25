@@ -36,6 +36,10 @@ BOTO_CONFIG: Config = Config(
     user_agent_extra=f'md/awslabs#mcp#ec2rescue-for-linux-mcp-server#{__version__}'
 )
 
+# Instance ID validation pattern (EC2 and managed instances). Kept in sync
+# with execution._INSTANCE_ID_PATTERN, which validates the run tools.
+INSTANCE_ID_PATTERN: str = r'^i-[0-9a-f]{8,17}$'
+
 # SSM Automation — AWSSupport-InstallEC2Rescue
 SSM_INSTALL_DOCUMENT_NAME: str = 'AWSSupport-InstallEC2Rescue'
 SSM_AUTOMATION_POLL_INTERVAL_SECONDS: float = 5.0
