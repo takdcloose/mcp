@@ -667,6 +667,20 @@ class TestHelptextSanitization:
         module = Ec2rlModule('m', 'mod_out/run/m.log', helptext=text)
         assert module.helptext == text
 
+    def test_newlines_become_spaces(self):
+        """Newlines separate words rather than joining them."""
+        module = Ec2rlModule(
+            'm', 'mod_out/run/m.log', helptext='Gathers output.\nFor journald systems.'
+        )
+        assert module.helptext == 'Gathers output. For journald systems.'
+
+    def test_whitespace_runs_collapsed(self):
+        """Repeated whitespace collapses to a single space."""
+        module = Ec2rlModule(
+            'm', 'mod_out/run/m.log', helptext='  Gathers\n\n\toutput.  \n'
+        )
+        assert module.helptext == 'Gathers output.'
+
 
 class TestValidateCommandRejectsUnsafeKeyToken:
     """validate_command (layer 2) must reject an unsafe --key token itself.

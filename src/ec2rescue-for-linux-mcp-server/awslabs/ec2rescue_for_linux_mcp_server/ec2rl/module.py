@@ -38,15 +38,17 @@ from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.commands import (
 from awslabs.ec2rescue_for_linux_mcp_server.ec2rl.registry import GATHEREDDIR_FILES
 
 
-# helptext comes from module YAML. It is surfaced in tool descriptions, so
-# cap its length and drop control characters before storing it.
+# Bounds size and control characters only. Text within the allowed charset can
+# still read as an instruction; that is handled where it is used, in
+# execution._render_helptext_block.
 _MAX_HELPTEXT_LEN = 500
 
 
 def _sanitize_helptext(helptext: str) -> str:
-    """Strip control characters from helptext and cap its length."""
-    cleaned = ''.join(c for c in helptext if c == ' ' or c.isprintable())
-    return cleaned[:_MAX_HELPTEXT_LEN]
+    """Replace control characters in helptext with spaces and cap its length."""
+    # Dropping a newline would join the words either side of it ("output.For").
+    cleaned = ''.join(c if c == ' ' or c.isprintable() else ' ' for c in helptext)
+    return ' '.join(cleaned.split())[:_MAX_HELPTEXT_LEN]
 
 
 def _validate_arg_keys(module_name: str, keys: list[str] | None) -> list[str]:
