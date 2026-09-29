@@ -44,6 +44,11 @@ server only reads that output back — it never deletes it. The files are
 Customer Content on the customer's own instance, so operators should prune
 `/var/tmp/ec2rl/` periodically.
 
+**Protecting that output at rest.** That output can contain secrets, tokens, or
+PII, and lands unencrypted-by-default on the instance's own volume. Protecting
+it at rest is the operator's responsibility: run these instances on encrypted
+EBS volumes (an existing unencrypted volume cannot be encrypted in place).
+
 **Module definitions.** The server only loads its bundled `mod.d/` module
 definitions, which decide the `ec2rl` commands it will run. They are verified
 at load time against a checksum manifest, and the server refuses to start if a
@@ -257,13 +262,15 @@ The IAM principal running this MCP server needs the following minimum permission
 
 ### AWS Credentials
 
-AWS credentials are passed via environment variables. Supported options:
+AWS credentials are passed via environment variables. Prefer `AWS_PROFILE` with
+SSO or an assumed role; static keys are the least preferred option and should be
+used only where neither is available.
 
 | Variable | Description |
 |----------|-------------|
-| `AWS_PROFILE` | AWS CLI named profile |
+| `AWS_PROFILE` | AWS CLI named profile — preferred; use with SSO or an assumed role |
 | `AWS_REGION` | AWS region (required unless your `AWS_PROFILE` sets one) |
-| `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Static credentials |
+| `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Static long-lived credentials. **Not recommended** — use only where SSO and assumed roles are both unavailable. You are responsible for rotating them. |
 
 ### MCP Client Authentication (Streamable HTTP)
 
