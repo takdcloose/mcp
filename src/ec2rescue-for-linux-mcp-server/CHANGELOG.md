@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP elicitation gates for perfimpact modules (user consent required before running)
 - MCP elicitation for uncurated gathered files and large-output modules
 - `grep_keys` parameter for targeted extraction from large module outputs (kernelconfig, sysctl, dpkgpackages, rpmpackages)
-- `install_ec2_rescue` tool via AWSSupport-InstallEC2Rescue SSM automation
+- `install_ec2rescue_linux` tool via AWSSupport-InstallEC2Rescue SSM automation
 - Streamable HTTP transport support via `--transport` CLI flag
 - Curated default module set to reduce MCP context usage
 - AWSLABS MCP user agent on all boto3 API calls for download dashboard tracking
