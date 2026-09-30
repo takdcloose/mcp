@@ -29,9 +29,11 @@ govern you and your content.
 
 The agent can only run registered `ec2rl` modules with character-validated
 arguments, not arbitrary shell commands. After a run, the server reads the
-files `ec2rl` produced under `/var/tmp/ec2rl/<timestamp>/`. Those paths are
-reported by the instance, so reads are constrained to that directory and refuse
-to follow symlinks or traverse out of it.
+files `ec2rl` produced under `/var/tmp/ec2rl/<timestamp>/`. Those paths come
+from the instance and are filtered, but that confinement is best-effort, not a
+security boundary: a compromised instance keeps some influence over which of
+its files reach your AI client. It gains no privilege doing so — these tools
+already require root on the instance via SSM.
 
 **Accepted risk.** The *contents* of files under that directory are whatever
 the instance wrote, so a compromised instance can return misleading diagnostic
