@@ -22,12 +22,12 @@ the ``AUTH_TYPE`` environment variable to be explicitly set:
 
 Required environment variables for ``AUTH_TYPE=oauth``:
 
-* ``AUTH_ISSUER``   — expected ``iss`` claim in the JWT.
-* ``AUTH_JWKS_URI`` — URL of the JWKS endpoint for token signature verification.
-
-Optional:
-
-* ``AUTH_AUDIENCE`` — expected ``aud`` claim (defaults to None / not checked).
+* ``AUTH_ISSUER``   — expected ``iss`` claim in the JWT. Must be https.
+* ``AUTH_JWKS_URI`` — URL of the JWKS endpoint for token signature
+  verification. Must be https.
+* ``AUTH_AUDIENCE`` — expected ``aud`` claim. Required: without it any
+  signature-valid token from the issuer would be accepted, whichever service
+  it was minted for.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from loguru import logger
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from typing import Literal
+from urllib.parse import urlsplit
 
 import jwt as pyjwt
 from jwt import PyJWKClient
@@ -56,7 +57,7 @@ class JWTTokenVerifier:
     expected by FastMCP's ``token_verifier`` parameter.
     """
 
-    def __init__(self, issuer: str, jwks_uri: str, audience: str | None = None):
+    def __init__(self, issuer: str, jwks_uri: str, audience: str):
         self._issuer = issuer
         self._audience = audience
         self._jwks_client = PyJWKClient(jwks_uri, cache_jwk_set=True, lifespan=300)
@@ -66,21 +67,14 @@ class JWTTokenVerifier:
         try:
             signing_key = self._jwks_client.get_signing_key_from_jwt(token)
 
-            decode_options: dict = {}
-            decode_kwargs: dict = {
-                'key': signing_key.key,
-                'algorithms': ['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512'],
-                'issuer': self._issuer,
-            }
-            if self._audience:
-                decode_kwargs['audience'] = self._audience
-            else:
-                decode_options['verify_aud'] = False
-
+            # Passing both issuer and audience makes `iss` and `aud` required:
+            # PyJWT raises MissingRequiredClaimError when either is absent.
             payload = pyjwt.decode(
                 token,
-                options=decode_options,
-                **decode_kwargs,
+                key=signing_key.key,
+                algorithms=['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512'],
+                issuer=self._issuer,
+                audience=self._audience,
             )
 
             # Extract standard claims
@@ -103,6 +97,16 @@ class JWTTokenVerifier:
         except Exception as e:
             logger.error(f'Unexpected error during token verification: {e}')
             return None
+
+
+def _require_https(key: str, value: str) -> str:
+    """Reject a non-https URL in an authentication setting."""
+    if urlsplit(value).scheme.lower() != 'https':
+        raise ValueError(
+            f'{key} must be an https URL, got: {value!r}. Authentication '
+            'decisions depend on this endpoint, so plaintext is not accepted.'
+        )
+    return value
 
 
 def get_auth_type_from_env() -> Literal['no-auth', 'oauth'] | None:
@@ -154,16 +158,21 @@ def get_server_auth(
     jwks_uri = os.environ.get(_AUTH_JWKS_URI_KEY)
     audience = os.environ.get(_AUTH_AUDIENCE_KEY)
 
-    if not issuer or not jwks_uri:
+    if not issuer or not jwks_uri or not audience:
         raise ValueError(
             'AUTH_TYPE=oauth requires the following environment variables: '
-            f'{_AUTH_ISSUER_KEY} and {_AUTH_JWKS_URI_KEY}. '
-            f'Optionally set {_AUTH_AUDIENCE_KEY} to validate the aud claim.'
+            f'{_AUTH_ISSUER_KEY}, {_AUTH_JWKS_URI_KEY} and '
+            f'{_AUTH_AUDIENCE_KEY}. {_AUTH_AUDIENCE_KEY} is required because '
+            'without an expected aud claim any signature-valid token from the '
+            'issuer would be accepted, whichever service it was minted for.'
         )
+
+    _require_https(_AUTH_ISSUER_KEY, issuer)
+    _require_https(_AUTH_JWKS_URI_KEY, jwks_uri)
 
     logger.info(
         f'OAuth JWT authentication enabled: issuer={issuer}, '
-        f'jwks_uri={jwks_uri}, audience={audience or "(not checked)"}'
+        f'jwks_uri={jwks_uri}, audience={audience}'
     )
 
     auth_settings = AuthSettings(

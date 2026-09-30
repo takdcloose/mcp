@@ -278,16 +278,16 @@ When using `--transport=streamable-http`, the server requires the `AUTH_TYPE` en
 
 | `AUTH_TYPE` | Description |
 |-------------|-------------|
-| `no-auth` | Explicitly disables authentication. Use only when network access is restricted (e.g., localhost-only). |
-| `oauth` | Enables OAuth 2.0 JWT Bearer token verification. Requires `AUTH_ISSUER` and `AUTH_JWKS_URI`. |
+| `no-auth` | Explicitly disables authentication. Use only with a loopback bind (`--host 127.0.0.1`, the default); never combine it with a bind on all interfaces. |
+| `oauth` | Enables OAuth 2.0 JWT Bearer token verification. Requires `AUTH_ISSUER`, `AUTH_JWKS_URI` and `AUTH_AUDIENCE`. |
 
 Additional environment variables for `AUTH_TYPE=oauth`:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `AUTH_ISSUER` | Yes | Expected `iss` claim in the JWT (e.g., `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_XXXXXXX`). |
-| `AUTH_JWKS_URI` | Yes | URL of the JWKS endpoint for verifying token signatures. |
-| `AUTH_AUDIENCE` | No | Expected `aud` claim. If omitted, audience is not validated. |
+| `AUTH_ISSUER` | Yes | Expected `iss` claim in the JWT (e.g., `https://cognito-idp.us-east-1.amazonaws.com/us-east-1_XXXXXXX`). Must be an `https` URL. |
+| `AUTH_JWKS_URI` | Yes | URL of the JWKS endpoint for verifying token signatures. Must be an `https` URL: this fetch supplies the keys behind every authentication decision, so plaintext is rejected. |
+| `AUTH_AUDIENCE` | Yes | Expected `aud` claim. Required — an issuer usually mints tokens for several services, so without it a token issued for any of them would be accepted here. Tokens with a different `aud`, or none, are rejected. |
 
 > **Note:** `AUTH_TYPE` is only required for `--transport=streamable-http`. The stdio transport (default) does not require authentication as it communicates via stdin/stdout with the parent process.
 
@@ -319,11 +319,33 @@ Additional environment variables for `AUTH_TYPE=oauth`:
 
 ### Streamable HTTP example
 
+Loopback bind, no authentication. `--host 127.0.0.1` is what makes
+`AUTH_TYPE=no-auth` acceptable here — the server is reachable only from the
+local machine:
+
 ```bash
 AUTH_TYPE=no-auth AWS_PROFILE=your-profile AWS_REGION=us-east-1 \
   uv run awslabs.ec2rescue-for-linux-mcp-server \
+    --transport streamable-http --host 127.0.0.1 --port 8080
+```
+
+To accept connections from other hosts, authenticate them. Do not widen the
+bind while leaving `AUTH_TYPE=no-auth`: the tools run diagnostics as root on
+your instances, so an unauthenticated listener on a routable interface hands
+that to anyone who can reach the port.
+
+```bash
+AUTH_TYPE=oauth \
+AUTH_ISSUER=https://your-issuer.example.com \
+AUTH_JWKS_URI=https://your-issuer.example.com/.well-known/jwks.json \
+AUTH_AUDIENCE=your-audience \
+AWS_PROFILE=your-profile AWS_REGION=us-east-1 \
+  uv run awslabs.ec2rescue-for-linux-mcp-server \
     --transport streamable-http --host 0.0.0.0 --port 8080
 ```
+
+Terminate TLS in front of the server (see HTTP Mode Security Considerations
+below); the server itself speaks plaintext HTTP.
 
 Once the server is running, connect to it using the following MCP client configuration (ensure the host and port match your `--host` and `--port` settings):
 
