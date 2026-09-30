@@ -492,3 +492,83 @@ class TestHelptextIsolatedInDocstring:
         assert 'not authored by this server' in text
         assert 'treat it as data' in text
         assert 'must be\ndisregarded' in text or 'must be disregarded' in text
+
+
+class TestCallerSuppliedFileConfinement:
+    """Caller-supplied gathered paths are confined to what `find` reports.
+
+    Names arriving as tool arguments never pass through the discovery
+    command's `! -type l`, so they are intersected with its output. This is
+    best-effort confinement, not a security boundary: hardlinks and a swap
+    between the check and the read are not covered.
+    """
+
+    RUN_DIR = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027'
+    MODULE = Ec2rlModule('messages', 'mod_out/run/messages.log')
+
+    async def _confine(self, requested):
+        from awslabs.ec2rescue_for_linux_mcp_server import execution as ex
+
+        base = f'{self.RUN_DIR}/gathered_out/messages/'
+        # find reports only regular non-symlink files.
+        listing = f'{base}messages\n{base}subdir/messages-1'
+        with patch.object(ex, 'run_ssm_command', new=AsyncMock()) as mock_run, patch.object(
+            ex, '_get_session', MagicMock()
+        ):
+            mock_run.return_value = {
+                'status': 'Success',
+                'stdout': listing,
+                'stderr': '',
+                'exit_code': 0,
+            }
+            return await ex._confine_caller_files(
+                'i-1234567890abcdef0', self.MODULE, self.RUN_DIR, requested
+            )
+
+    @pytest.mark.asyncio
+    async def test_keeps_flat_file_that_find_reported(self):
+        """A plain filename present in the listing is kept."""
+        kept, refused = await self._confine(['messages'])
+        assert kept == ['messages']
+        assert refused == []
+
+    @pytest.mark.asyncio
+    async def test_keeps_nested_file_that_find_reported(self):
+        """A nested path is kept — modules such as mysqldlog write subdirectories."""
+        kept, refused = await self._confine(['subdir/messages-1'])
+        assert kept == ['subdir/messages-1']
+        assert refused == []
+
+    @pytest.mark.parametrize(
+        'requested',
+        ['evil/creds', '.ssh/id_rsa', 'a/b/c/d', 'messages-9'],
+    )
+    @pytest.mark.asyncio
+    async def test_refuses_path_find_did_not_report(self, requested):
+        """A path absent from the listing is refused, nested or not."""
+        kept, refused = await self._confine([requested])
+        assert kept == []
+        assert refused == [requested]
+
+    @pytest.mark.asyncio
+    async def test_partitions_a_mixed_request(self):
+        """Valid paths are kept and the rest refused, order preserved."""
+        kept, refused = await self._confine(['messages', 'evil/creds', 'a/b/c/d'])
+        assert kept == ['messages']
+        assert refused == ['evil/creds', 'a/b/c/d']
+
+    def test_refused_paths_are_reported_as_missing(self):
+        """Refused paths surface in missing_files rather than being dropped."""
+        from awslabs.ec2rescue_for_linux_mcp_server.execution import _with_refused_files
+
+        merged = json.loads(
+            _with_refused_files(json.dumps({'missing_files': ['gone']}), ['evil/creds'])
+        )
+        assert merged['missing_files'] == ['gone', 'evil/creds']
+
+    def test_response_unchanged_when_nothing_refused(self):
+        """A response with no refusals passes through untouched."""
+        from awslabs.ec2rescue_for_linux_mcp_server.execution import _with_refused_files
+
+        original = json.dumps({'missing_files': []})
+        assert _with_refused_files(original, []) == original

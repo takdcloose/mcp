@@ -213,6 +213,43 @@ async def _discover_gathered_files(
     return available
 
 
+async def _confine_caller_files(
+    instance_id: str,
+    module: Ec2rlModule,
+    output_dir: str,
+    files: list[str],
+) -> tuple[list[str], list[str]]:
+    """Keep only caller-supplied paths ``find`` reported. Returns (kept, refused).
+
+    Caller-supplied names arrive as tool arguments, so unlike discovered ones
+    they never pass through ``find ... -type f ! -type l``. Re-running that
+    find and intersecting confines them to real files in the module's own
+    directory: find does not descend a symlinked directory, so a name whose
+    directory component redirects elsewhere is absent from the result.
+
+    This is best-effort confinement, not a security boundary — see the
+    hardlink and check-then-read notes in the threat model.
+    """
+    discovered = set(await _discover_gathered_files(instance_id, module, output_dir))
+    kept = [rel for rel in files if rel in discovered]
+    refused = [rel for rel in files if rel not in discovered]
+    for rel in refused:
+        logger.warning(
+            f'Refusing caller-supplied gathered path for {module.name!r}: '
+            f'{rel!r} (not reported by find under the module directory)'
+        )
+    return kept, refused
+
+
+def _with_refused_files(result_json: str, refused: list[str]) -> str:
+    """Add refused caller-supplied paths to a response's ``missing_files``."""
+    if not refused:
+        return result_json
+    data = json.loads(result_json)
+    data['missing_files'] = list(data.get('missing_files') or []) + refused
+    return json.dumps(data)
+
+
 async def _list_or_elicit_gathered_files(
     ctx: Context,
     instance_id: str,
@@ -639,6 +676,32 @@ async def _run_ec2rl_module(
             raw_stdout=result['stdout'],
         ).as_json()
 
+    # `gathered_files` is a tool argument, so confine it here — once, at the
+    # boundary where untrusted input enters — rather than in each reader.
+    # Paths discovered internally have already been through the same find.
+    refused_files: list[str] = []
+    if gathered_files is not None and ec2rl_module.is_gathered_module(module.name):
+        gathered_files, refused_files = await _confine_caller_files(
+            instance_id, module, output_dir, gathered_files
+        )
+        if not gathered_files:
+            # Nothing the caller named survived. Returning here keeps the
+            # readers from falling back to discovery or elicitation and
+            # reading files the caller never asked for.
+            return ModuleResponse(
+                instance_id=instance_id,
+                module=module.name,
+                status=result['status'],
+                exit_code=result['exit_code'],
+                output_dir=output_dir,
+                missing_files=refused_files,
+                hint=(
+                    'None of the requested paths were found as regular files '
+                    f'under gathered_out/{module.name}/. Re-invoke without '
+                    '`gathered_files` to see what is available.'
+                ),
+            ).as_json()
+
     if module.name in GREP_KEYS_MODULES:
         strategy = GREP_KEYS_MODULES[module.name]
         if grep_keys:
@@ -650,14 +713,17 @@ async def _run_ec2rl_module(
                 return await _grep_log_sysctl(
                     instance_id, module, output_dir, result, keys=grep_keys
                 )
-            return await _grep_gathered_files(
-                ctx,
-                instance_id,
-                module,
-                output_dir,
-                result,
-                keys=grep_keys,
-                files=gathered_files,
+            return _with_refused_files(
+                await _grep_gathered_files(
+                    ctx,
+                    instance_id,
+                    module,
+                    output_dir,
+                    result,
+                    keys=grep_keys,
+                    files=gathered_files,
+                ),
+                refused_files,
             )
         # grep_keys omitted — elicit confirmation before fetching all output
         confirmed = await _fetch_all_elicitation_gate(
@@ -685,9 +751,12 @@ async def _run_ec2rl_module(
             f'{strategy.key_description}.'
         )
         if isinstance(strategy, GatheredKvGrep):
-            return await _read_gathered_files_with_hint(
-                ctx, instance_id, module, output_dir, result,
-                files=gathered_files, hint=keys_omitted_hint,
+            return _with_refused_files(
+                await _read_gathered_files_with_hint(
+                    ctx, instance_id, module, output_dir, result,
+                    files=gathered_files, hint=keys_omitted_hint,
+                ),
+                refused_files,
             )
         # LogFixedGrep / LogSysctlGrep: read full mod_out log
         return await _read_log_with_hint(
@@ -695,9 +764,12 @@ async def _run_ec2rl_module(
         )
 
     if ec2rl_module.is_gathered_module(module.name):
-        return await _read_gathered_files(
-            ctx, instance_id, module, output_dir, result,
-            files=gathered_files, tail_lines=effective_tail,
+        return _with_refused_files(
+            await _read_gathered_files(
+                ctx, instance_id, module, output_dir, result,
+                files=gathered_files, tail_lines=effective_tail,
+            ),
+            refused_files,
         )
 
     # Non-gathered mod_out log: tail when in effect (e.g. dmesg), else cat.
