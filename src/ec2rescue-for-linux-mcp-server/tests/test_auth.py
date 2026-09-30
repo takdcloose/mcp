@@ -15,12 +15,11 @@
 """Tests for the auth module."""
 
 import pytest
-from unittest.mock import MagicMock, patch
-
 from awslabs.ec2rescue_for_linux_mcp_server.auth import (
     get_auth_type_from_env,
     get_server_auth,
 )
+from unittest.mock import MagicMock, patch
 
 
 class TestGetAuthTypeFromEnv:

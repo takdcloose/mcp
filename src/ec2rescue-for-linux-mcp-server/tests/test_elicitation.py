@@ -34,8 +34,11 @@ def perfimpact_module():
 
 
 class TestPerfimpactConsentGate:
-    """The gate is fail-closed: a perfimpact module runs only when the
-    operator started the server with --allow-perfimpact."""
+    """The gate is fail-closed.
+
+    A perfimpact module runs only when the operator started the server with
+    --allow-perfimpact.
+    """
 
     def test_denied_when_flag_not_set(self, perfimpact_module):
         """Fail-closed: without --allow-perfimpact the gate aborts the run."""

@@ -32,15 +32,14 @@ Required environment variables for ``AUTH_TYPE=oauth``:
 
 from __future__ import annotations
 
+import jwt as pyjwt
 import os
+from jwt import PyJWKClient
 from loguru import logger
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from typing import Literal
 from urllib.parse import urlsplit
-
-import jwt as pyjwt
-from jwt import PyJWKClient
 
 
 # Environment variable keys
@@ -58,6 +57,7 @@ class JWTTokenVerifier:
     """
 
     def __init__(self, issuer: str, jwks_uri: str, audience: str):
+        """Store the expected issuer and audience, and open the JWKS client."""
         self._issuer = issuer
         self._audience = audience
         self._jwks_client = PyJWKClient(jwks_uri, cache_jwk_set=True, lifespan=300)
