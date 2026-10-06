@@ -12,13 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the perfimpact consent gate in elicitation.py."""
+"""Tests for the perfimpact and install gates in elicitation.py."""
 
 import json
 import pytest
 from awslabs.ec2rescue_for_linux_mcp_server import elicitation as elicitation_module
 from awslabs.ec2rescue_for_linux_mcp_server.ec2rl import Ec2rlModule
-from awslabs.ec2rescue_for_linux_mcp_server.elicitation import _perfimpact_consent_gate
+from awslabs.ec2rescue_for_linux_mcp_server.elicitation import (
+    _install_gate,
+    _perfimpact_consent_gate,
+)
 from unittest.mock import patch
 
 
@@ -58,3 +61,40 @@ class TestPerfimpactConsentGate:
             result = _perfimpact_consent_gate(_INSTANCE_ID, perfimpact_module)
 
         assert result is None
+
+
+class TestInstallGate:
+    """The gate is fail-closed: install needs --allow-install."""
+
+    def test_denied_when_flag_not_set(self):
+        """Fail-closed: without --allow-install the gate aborts the install."""
+        with patch.object(elicitation_module, '_ALLOW_INSTALL', False):
+            result = _install_gate(_INSTANCE_ID)
+
+        assert result is not None
+        data = json.loads(result)
+        assert data['status'] == 'Aborted'
+        assert data['reason'] == 'install_not_permitted'
+        assert data['module'] == 'install_ec2rescue_linux'
+        assert data['instance_id'] == _INSTANCE_ID
+
+    def test_permitted_when_flag_set(self):
+        """With --allow-install the gate permits the install (returns None)."""
+        with patch.object(elicitation_module, '_ALLOW_INSTALL', True):
+            result = _install_gate(_INSTANCE_ID)
+
+        assert result is None
+
+    def test_denial_names_the_flag(self):
+        """The abort message tells the operator which flag to restart with."""
+        with patch.object(elicitation_module, '_ALLOW_INSTALL', False):
+            result = _install_gate(_INSTANCE_ID)
+
+        assert '--allow-install' in json.loads(result)['message']
+
+    def test_gate_takes_no_context(self):
+        """No ctx: the outcome cannot be auto-answered by an agent."""
+        import inspect
+
+        assert not inspect.iscoroutinefunction(_install_gate)
+        assert list(inspect.signature(_install_gate).parameters) == ['instance_id']

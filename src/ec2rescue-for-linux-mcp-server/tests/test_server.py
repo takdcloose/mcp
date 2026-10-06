@@ -19,7 +19,7 @@ import pytest
 from awslabs.ec2rescue_for_linux_mcp_server import ec2rl as ec2rl_module
 from awslabs.ec2rescue_for_linux_mcp_server.ec2rl import Ec2rlModule
 from awslabs.ec2rescue_for_linux_mcp_server.execution import _run_ec2rl_module
-from awslabs.ec2rescue_for_linux_mcp_server.server import list_instances
+from awslabs.ec2rescue_for_linux_mcp_server.server import list_instances, register_core_tools
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
@@ -572,3 +572,40 @@ class TestCallerSuppliedFileConfinement:
 
         original = json.dumps({'missing_files': []})
         assert _with_refused_files(original, []) == original
+
+
+class TestCoreToolRegistration:
+    """Core tools survive the auth-time FastMCP rebind.
+
+    Decorator-time registration was dropped under AUTH_TYPE=oauth, which lost
+    list_instances and install_ec2rescue_linux.
+    """
+
+    @pytest.mark.asyncio
+    async def test_registers_both_core_tools(self):
+        """A fresh instance gets list_instances and install_ec2rescue_linux."""
+        from mcp.server.fastmcp import FastMCP
+
+        fresh = FastMCP('test')
+        register_core_tools(fresh)
+
+        assert sorted(t.name for t in await fresh.list_tools()) == [
+            'install_ec2rescue_linux',
+            'list_instances',
+        ]
+
+    @pytest.mark.asyncio
+    async def test_install_registered_regardless_of_flag(self):
+        """Visibility is flag-independent; _install_gate decides at call time."""
+        from awslabs.ec2rescue_for_linux_mcp_server import elicitation as el
+        from mcp.server.fastmcp import FastMCP
+
+        for flag in (False, True):
+            with patch.object(el, '_ALLOW_INSTALL', flag):
+                fresh = FastMCP('test')
+                register_core_tools(fresh)
+                names = {t.name for t in await fresh.list_tools()}
+
+            assert 'install_ec2rescue_linux' in names, (
+                f'install tool must stay registered with _ALLOW_INSTALL={flag}'
+            )
