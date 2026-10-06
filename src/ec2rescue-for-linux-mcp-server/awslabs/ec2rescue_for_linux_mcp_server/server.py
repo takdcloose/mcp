@@ -32,7 +32,7 @@ from awslabs.ec2rescue_for_linux_mcp_server.consts import (
     INSTANCE_ID_PATTERN,
     SERVER_NAME,
 )
-from awslabs.ec2rescue_for_linux_mcp_server.elicitation import _install_consent_gate
+from awslabs.ec2rescue_for_linux_mcp_server.elicitation import _install_gate
 from awslabs.ec2rescue_for_linux_mcp_server.responses import InstallResponse, InstanceListResponse
 from awslabs.ec2rescue_for_linux_mcp_server.ssm import list_ssm_instances, run_install_ec2_rescue
 from awslabs.ec2rescue_for_linux_mcp_server.yaml_loader import (
@@ -88,7 +88,6 @@ mcp = FastMCP(
 )
 
 
-@mcp.tool(name='list_instances')
 async def list_instances(
     ctx: Context,
 ) -> str:
@@ -109,7 +108,6 @@ async def list_instances(
         raise
 
 
-@mcp.tool(name='install_ec2rescue_linux')
 async def install_ec2rescue_linux(
     ctx: Context,
     instance_id: str = Field(
@@ -127,7 +125,7 @@ async def install_ec2rescue_linux(
     ## Usage Requirements
     - Call `list_instances` first to get a valid instance ID.
     - The instance must be SSM-managed and online.
-    - User consent is required before installation proceeds.
+    - The server must have been started with `--allow-install`.
 
     ## What This Does
     Runs the AWS SSM Automation document `AWSSupport-InstallEC2Rescue`,
@@ -143,11 +141,12 @@ async def install_ec2rescue_linux(
     - `failure_message`: Reason if the automation failed.
 
     ## Notes
-    - If the MCP client does not support elicitation, restart the server
-      with `--allow-install` to bypass the consent prompt.
+    - NOTE: This installs software on the instance. It is disabled unless the
+      server was started with `--allow-install`, and otherwise returns Aborted
+      (`install_not_permitted`).
     """
     try:
-        abort = await _install_consent_gate(ctx, instance_id)
+        abort = _install_gate(instance_id)
         if abort is not None:
             return abort
 
@@ -179,6 +178,17 @@ from awslabs.ec2rescue_for_linux_mcp_server.execution import (  # noqa: E402, F4
     build_server_instructions,
     register_ec2rl_tools,
 )
+
+
+def register_core_tools(mcp_server: FastMCP) -> None:
+    """Register the non-module tools on ``mcp_server``.
+
+    Called from main(), not via decorators: main() rebinds ``mcp`` when auth
+    is configured, which would drop decorator-time registrations. Install is
+    registered unconditionally; ``_install_gate`` decides at call time.
+    """
+    mcp_server.tool(name='list_instances')(list_instances)
+    mcp_server.tool(name='install_ec2rescue_linux')(install_ec2rescue_linux)
 
 
 def _default_mod_dir() -> str:
@@ -269,10 +279,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         '--allow-install',
         action='store_true',
         help=(
-            'Allow the install_ec2rescue_linux tool to proceed without '
-            'elicitation consent. Use this when the MCP client does not '
-            'support elicitation and you want to permit EC2 Rescue '
-            'installation via AWSSupport-InstallEC2Rescue.'
+            'Permit the install_ec2rescue_linux tool to install EC2 '
+            'Rescue via AWSSupport-InstallEC2Rescue. Without this flag the '
+            'tool stays visible but refuses to run (fail-closed).'
         ),
     )
     return parser.parse_args(argv)
@@ -339,6 +348,7 @@ def main():
     ec2rl_module.EC2RL_MODULES.clear()
     ec2rl_module.EC2RL_MODULES.update(modules)
 
+    register_core_tools(mcp)
     register_ec2rl_tools(mcp, modules)
 
     # Swap in dynamically-built instructions for the underlying MCP server.

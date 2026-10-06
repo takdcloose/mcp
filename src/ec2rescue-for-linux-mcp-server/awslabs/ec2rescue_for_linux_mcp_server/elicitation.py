@@ -62,29 +62,15 @@ class _LargeOutputConfirmation(BaseModel):
     )
 
 
-class _InstallEc2RescueConsent(BaseModel):
-    """Schema for asking the user to confirm EC2 Rescue installation."""
-
-    confirm: bool = Field(
-        description=(
-            'This will run the AWSSupport-InstallEC2Rescue SSM Automation '
-            'document on the target instance, which downloads and installs '
-            'EC2 Rescue for Linux. Set true to proceed; false to abort.'
-        ),
-    )
-
-
 # Operator permission for perfimpact modules, set by main() from
 # --allow-perfimpact. Denied by default (fail-closed): a runtime elicitation
 # prompt is no safeguard because agentic MCP clients auto-answer it, so
 # permission is a startup flag an agent cannot grant itself.
 _ALLOW_PERFIMPACT: bool = False
 
-# Whether the install_ec2rescue_linux tool is registered. Set by main() from
-# the --allow-install CLI flag. When False (default), the tool is not
-# registered and installation requires elicitation consent. When True,
-# the tool is registered and proceeds without elicitation (for MCP
-# clients that don't support elicitation).
+# Operator permission to install EC2 Rescue, set by main() from
+# --allow-install. Denied by default (fail-closed), and a startup flag for the
+# same reason as _ALLOW_PERFIMPACT above.
 _ALLOW_INSTALL: bool = False
 
 
@@ -225,70 +211,32 @@ async def _large_output_elicitation_gate(
         hint=warning_message,
     ).as_json()
 
-
-async def _install_consent_gate(
-    ctx: Context,
+def _install_gate(
     instance_id: str,
 ) -> str | None:
-    """Gate the install_ec2rescue_linux tool on explicit user consent.
+    """Gate the install tool on the ``--allow-install`` flag.
 
-    Returns None when the install may proceed (operator --allow-install
-    flag or user accepted elicitation). Returns an Aborted JSON string
-    when the user declined or elicitation isn't available and the
-    operator hasn't opted in.
+    Returns None when permitted, else an Aborted JSON envelope.
     """
     if _ALLOW_INSTALL:
         logger.info(
-            f'install_ec2rescue_linux on {instance_id}: consent gate skipped '
-            'by --allow-install operator override.'
-        )
-        return None
-
-    message = (
-        f'This will run the AWSSupport-InstallEC2Rescue SSM Automation '
-        f'document on {instance_id}, which downloads and installs '
-        f'EC2 Rescue for Linux. Confirm to proceed.'
-    )
-    try:
-        elicit_result = await ctx.elicit(
-            message=message, schema=_InstallEc2RescueConsent
-        )
-    except Exception as e:
-        logger.warning(
-            f'Elicitation unavailable for install gate on {instance_id}: '
-            f'{e!r}; aborting (start the server with --allow-install to '
-            'bypass when the client does not support elicitation).'
-        )
-        return ModuleResponse(
-            instance_id=instance_id,
-            module='install_ec2rescue_linux',
-            status='Aborted',
-            reason='install_consent_unavailable',
-            message=(
-                'Installing EC2 Rescue requires user consent, but the MCP '
-                'client does not support elicitation. Restart the server '
-                'with --allow-install to bypass.'
-            ),
-        ).as_json()
-
-    if (
-        elicit_result.action == 'accept'
-        and elicit_result.data is not None
-        and elicit_result.data.confirm
-    ):
-        logger.info(
-            f'User consented to installing EC2 Rescue on {instance_id}.'
+            f'install_ec2rescue_linux on {instance_id}: permitted by '
+            '--allow-install.'
         )
         return None
 
     logger.info(
-        f'User declined EC2 Rescue installation on {instance_id} '
-        f'(action={elicit_result.action!r}).'
+        f'install_ec2rescue_linux on {instance_id} but --allow-install was '
+        'not set; denying (fail-closed).'
     )
     return ModuleResponse(
         instance_id=instance_id,
         module='install_ec2rescue_linux',
         status='Aborted',
-        reason='install_consent_denied',
-        message='User declined to install EC2 Rescue on the instance.',
+        reason='install_not_permitted',
+        message=(
+            'Installing EC2 Rescue downloads and installs software on the '
+            'instance and is disabled by default. An operator must restart '
+            'the server with --allow-install to enable it.'
+        ),
     ).as_json()
