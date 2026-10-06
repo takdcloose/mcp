@@ -365,6 +365,13 @@ async def _read_gathered_files(
             files = await _discover_gathered_files(
                 instance_id, module, output_dir
             )
+        elif curated:
+            # Curated names are not caller-supplied, but they are read with the
+            # same leaf-only `[ ! -L ]` guard, which a symlinked module
+            # directory defeats. Intersect them with find for the same reason.
+            files, _ = await _confine_caller_files(
+                instance_id, module, output_dir, list(curated)
+            )
 
     # Tailing takes precedence over comment stripping (mutually exclusive).
     cmds = module.gathered_read_commands(output_dir, files=files, tail_lines=tail_lines)
@@ -430,7 +437,10 @@ async def _grep_gathered_files(
     if not files:
         curated = ec2rl_module.GATHEREDDIR_FILES.get(module.name, ())
         if curated and curated != ('*',):
-            files = list(curated)
+            # Confined for the same reason as in _read_gathered_files.
+            files, _ = await _confine_caller_files(
+                instance_id, module, output_dir, list(curated)
+            )
         else:
             files = await _discover_gathered_files(
                 instance_id, module, output_dir

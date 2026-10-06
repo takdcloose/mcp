@@ -319,8 +319,11 @@ class TestTailModules:
     @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_yumlog_default_tail(self, mock_run, mock_ctx, registered_tail_modules):
         """Gathered yumlog defaults to `tail -n 100` on its curated file."""
+        listing = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/gathered_out/yumlog/yum.log'
         mock_run.side_effect = [
             {'status': 'Success', 'stdout': self.EC2RL_RUN_STDOUT, 'stderr': '', 'exit_code': 0},
+            # Curated names are intersected with find before being read.
+            {'status': 'Success', 'stdout': listing, 'stderr': '', 'exit_code': 0},
             {'status': 'Success', 'stdout': 'last 100 yum.log lines', 'stderr': '', 'exit_code': 0},
         ]
 
@@ -330,7 +333,7 @@ class TestTailModules:
         assert data['status'] == 'Success'
         assert data['tail_lines'] == 100
         assert 'yum.log' in data['files']
-        read_cmd = mock_run.call_args_list[1].args[2]
+        read_cmd = mock_run.call_args_list[2].args[2]
         assert read_cmd.startswith('[ ! -L ')
         assert ' && tail -n 100 ' in read_cmd
         assert read_cmd.endswith('/gathered_out/yumlog/yum.log')
@@ -371,8 +374,12 @@ class TestTailModules:
     @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
     async def test_aptlog_tails_all_curated_files(self, mock_run, mock_ctx, registered_tail_modules):
         """Gathered aptlog tails each of its multiple curated files."""
+        base = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027/gathered_out/aptlog/'
         mock_run.side_effect = [
             {'status': 'Success', 'stdout': self.EC2RL_RUN_STDOUT, 'stderr': '', 'exit_code': 0},
+            # Curated names are intersected with find before being read.
+            {'status': 'Success', 'stdout': f'{base}history.log\n{base}dpkg.log',
+             'stderr': '', 'exit_code': 0},
             {'status': 'Success', 'stdout': 'recent history.log', 'stderr': '', 'exit_code': 0},
             {'status': 'Success', 'stdout': 'recent dpkg.log', 'stderr': '', 'exit_code': 0},
         ]
@@ -383,7 +390,7 @@ class TestTailModules:
         assert data['status'] == 'Success'
         assert data['tail_lines'] == 100
         assert set(data['files']) == {'history.log', 'dpkg.log'}
-        for call in mock_run.call_args_list[1:]:
+        for call in mock_run.call_args_list[2:]:
             assert call.args[2].startswith('[ ! -L ')
             assert ' && tail -n 100 ' in call.args[2]
 
@@ -609,3 +616,63 @@ class TestCoreToolRegistration:
             assert 'install_ec2rescue_linux' in names, (
                 f'install tool must stay registered with _ALLOW_INSTALL={flag}'
             )
+
+
+class TestCuratedFileConfinement:
+    """Curated names are confined to what `find` reports.
+
+    They are read with the same leaf-only `[ ! -L ]` guard as caller-supplied
+    names, which a symlinked module directory defeats: the leaf is a real file,
+    so the guard passes and the read follows the directory link. find does not
+    descend a symlinked start point, so intersecting with it closes that path.
+    """
+
+    RUN_DIR = '/var/tmp/ec2rl/2026-04-14T02_50_34.749027'
+    EC2RL_RUN_STDOUT = TestRunEc2rlModule.EC2RL_RUN_STDOUT
+
+    @pytest.mark.asyncio
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
+    async def test_curated_read_intersects_with_find(
+        self, mock_run, mock_ctx, registered_tail_modules
+    ):
+        """A curated name absent from the listing is not read."""
+        # Empty listing: find reports nothing, as when the module directory is
+        # a symlink and it refuses to descend. The fallback listing is empty
+        # too, so no file is offered.
+        empty = {'status': 'Success', 'stdout': '', 'stderr': '', 'exit_code': 0}
+        mock_run.side_effect = [
+            {'status': 'Success', 'stdout': self.EC2RL_RUN_STDOUT, 'stderr': '', 'exit_code': 0},
+            empty,
+            empty,
+        ]
+
+        data = json.loads(
+            await _run_ec2rl_module(mock_ctx, 'i-1234567890abcdef0', YUMLOG)
+        )
+
+        assert not data.get('files')
+        issued = [c.args[2] for c in mock_run.call_args_list[1:]]
+        assert all(' -type f ! -type l' in c for c in issued), (
+            f'the curated file must not be read: {issued}'
+        )
+
+    @pytest.mark.asyncio
+    @patch('awslabs.ec2rescue_for_linux_mcp_server.execution.run_ssm_command')
+    async def test_curated_read_proceeds_when_find_reports_it(
+        self, mock_run, mock_ctx, registered_tail_modules
+    ):
+        """A curated name present in the listing is still read."""
+        listing = f'{self.RUN_DIR}/gathered_out/yumlog/yum.log'
+        mock_run.side_effect = [
+            {'status': 'Success', 'stdout': self.EC2RL_RUN_STDOUT, 'stderr': '', 'exit_code': 0},
+            {'status': 'Success', 'stdout': listing, 'stderr': '', 'exit_code': 0},
+            {'status': 'Success', 'stdout': 'yum lines', 'stderr': '', 'exit_code': 0},
+        ]
+
+        data = json.loads(
+            await _run_ec2rl_module(mock_ctx, 'i-1234567890abcdef0', YUMLOG)
+        )
+
+        assert data['status'] == 'Success'
+        assert 'yum.log' in data['files']
+        assert mock_run.call_args_list[2].args[2].endswith('/gathered_out/yumlog/yum.log')
