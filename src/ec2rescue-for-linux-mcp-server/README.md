@@ -206,7 +206,8 @@ To specify a flag (for example, to enable all modules), add it to the `args` arr
 
 ## IAM Policy (MCP Server Side)
 
-The IAM principal running this MCP server needs the following minimum permissions:
+The IAM principal running this MCP server needs the following minimum
+permissions:
 
 ```json
 {
@@ -217,9 +218,7 @@ The IAM principal running this MCP server needs the following minimum permission
       "Effect": "Allow",
       "Action": [
         "ssm:DescribeInstanceInformation",
-        "ssm:GetCommandInvocation",
-        "ssm:ListCommands",
-        "ssm:ListCommandInvocations"
+        "ssm:GetCommandInvocation"
       ],
       "Resource": "*"
     },
@@ -229,7 +228,6 @@ The IAM principal running this MCP server needs the following minimum permission
       "Action": "ssm:SendCommand",
       "Resource": [
         "arn:aws:ssm:*::document/AWS-RunShellScript",
-        "arn:aws:ssm:*::document/AWS-ConfigureAWSPackage",
         "arn:aws:ec2:*:ACCOUNT_ID:instance/*",
         "arn:aws:ssm:*:ACCOUNT_ID:managed-instance/*"
       ]
@@ -239,9 +237,27 @@ The IAM principal running this MCP server needs the following minimum permission
       "Effect": "Allow",
       "Action": "ec2:DescribeInstances",
       "Resource": "*"
-    },
+    }
+  ]
+}
+```
+
+### Additional permissions for `--allow-install`
+
+Only needed if you start the server with `--allow-install`. The
+`AWSSupport-InstallEC2Rescue` runbook is started without an
+`AutomationAssumeRole`, so it runs with this principal's permissions and needs
+its own [documented
+permissions](https://docs.aws.amazon.com/systems-manager-automation-runbooks/latest/userguide/automation-awssupport-installec2rescue.html)
+— including account-wide `ssm:ListCommandInvocations`. Omit this policy to keep
+that grant off the principal.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
     {
-      "Sid": "SSMAutomationInstallStart",
+      "Sid": "SSMAutomationInstall",
       "Effect": "Allow",
       "Action": "ssm:StartAutomationExecution",
       "Resource": [
@@ -255,6 +271,25 @@ The IAM principal running this MCP server needs the following minimum permission
       "Effect": "Allow",
       "Action": "ssm:DescribeAutomationExecutions",
       "Resource": "*"
+    },
+    {
+      "Sid": "InstallRunbookRunCommand",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:ListCommands",
+        "ssm:ListCommandInvocations"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InstallRunbookConfigurePackage",
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": [
+        "arn:aws:ssm:*::document/AWS-ConfigureAWSPackage",
+        "arn:aws:ec2:*:ACCOUNT_ID:instance/*",
+        "arn:aws:ssm:*:ACCOUNT_ID:managed-instance/*"
+      ]
     }
   ]
 }
