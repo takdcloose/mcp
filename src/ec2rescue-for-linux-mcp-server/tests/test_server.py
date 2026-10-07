@@ -676,3 +676,63 @@ class TestCuratedFileConfinement:
         assert data['status'] == 'Success'
         assert 'yum.log' in data['files']
         assert mock_run.call_args_list[2].args[2].endswith('/gathered_out/yumlog/yum.log')
+
+
+class TestUnparseableOutputDir:
+    """An unreadable output directory reports the run's own status.
+
+    A module in READ_LOG_ON_NONZERO_EXIT_MODULES falls through a non-zero exit
+    to read its log, because that is how it signals "issue detected". When
+    ec2rl is absent the run exits 127 and prints no output directory, so the
+    fall-through lands here -- which used to report Success and hide the
+    failure.
+    """
+
+    NOT_FOUND = {
+        'status': 'Failed',
+        'stdout': '',
+        'stderr': 'bash: ec2rl: command not found',
+        'exit_code': 127,
+    }
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('module_name', ['oomkiller', 'osrelease'])
+    async def test_missing_ec2rl_fails_whether_or_not_log_is_read(self, module_name, mock_ctx):
+        """Both module kinds report Failed: the fall-through must not flip it."""
+        from awslabs.ec2rescue_for_linux_mcp_server import execution as ex
+        from awslabs.ec2rescue_for_linux_mcp_server import server as srv
+
+        mods = srv.load_modules_from_yaml_dir(srv._default_mod_dir(), include_remediation=False)
+        module = mods[module_name]
+        with patch.object(ex, 'run_ssm_command', new=AsyncMock(return_value=self.NOT_FOUND)), \
+             patch.object(ex, '_get_session', MagicMock()), \
+             patch.object(ex.ec2rl_module, 'EC2RL_MODULES', {module_name: module}):
+            data = json.loads(
+                await ex._run_ec2rl_module(mock_ctx, 'i-1234567890abcdef0', module)
+            )
+
+        assert data['status'] == 'Failed'
+        assert data['exit_code'] == 127
+        # The cause, not just the symptom.
+        assert 'command not found' in data['stderr']
+        # The log was never read, so no issue was detected.
+        assert data.get('detected_issue') is None
+
+    @pytest.mark.asyncio
+    async def test_successful_run_with_unparseable_output_stays_success(self, mock_ctx):
+        """A clean run whose output format is unrecognised is still a success."""
+        from awslabs.ec2rescue_for_linux_mcp_server import execution as ex
+        from awslabs.ec2rescue_for_linux_mcp_server import server as srv
+
+        mods = srv.load_modules_from_yaml_dir(srv._default_mod_dir(), include_remediation=False)
+        module = mods['oomkiller']
+        ok = {'status': 'Success', 'stdout': 'unexpected format', 'stderr': '', 'exit_code': 0}
+        with patch.object(ex, 'run_ssm_command', new=AsyncMock(return_value=ok)), \
+             patch.object(ex, '_get_session', MagicMock()), \
+             patch.object(ex.ec2rl_module, 'EC2RL_MODULES', {'oomkiller': module}):
+            data = json.loads(
+                await ex._run_ec2rl_module(mock_ctx, 'i-1234567890abcdef0', module)
+            )
+
+        assert data['status'] == 'Success'
+        assert 'Could not parse output directory' in data['stderr']

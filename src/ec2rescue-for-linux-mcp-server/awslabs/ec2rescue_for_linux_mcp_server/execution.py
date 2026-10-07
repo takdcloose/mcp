@@ -680,9 +680,16 @@ async def _run_ec2rl_module(
         return ModuleResponse(
             instance_id=instance_id,
             module=module.name,
-            status='Success',
+            # Report the run's own status, as the two paths above do. A module
+            # in READ_LOG_ON_NONZERO_EXIT_MODULES reaches here after a failed
+            # run -- ec2rl absent (exit 127) prints no output directory -- and
+            # reporting Success there hid the failure behind an unread log.
+            status=result['status'],
             exit_code=result['exit_code'],
-            stderr='Could not parse output directory from ec2rl output',
+            stderr=(
+                result['stderr']
+                or 'Could not parse output directory from ec2rl output'
+            ),
             raw_stdout=result['stdout'],
         ).as_json()
 
