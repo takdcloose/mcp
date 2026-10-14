@@ -72,6 +72,8 @@ class JWTTokenVerifier:
             payload = pyjwt.decode(
                 token,
                 key=signing_key.key,
+                # Asymmetric only. The JWKS public key is public, so an HS*
+                # entry here would accept it as a shared HMAC secret.
                 algorithms=['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'ES512'],
                 issuer=self._issuer,
                 audience=self._audience,

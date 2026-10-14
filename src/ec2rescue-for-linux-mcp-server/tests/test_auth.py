@@ -231,3 +231,23 @@ class TestJWTTokenVerifier:
 
         other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         assert await verifier.verify_token(self._mint(other_key)) is None
+
+    @pytest.mark.asyncio
+    async def test_offers_pyjwt_no_hmac_algorithm(self, verifier, signing_key):
+        """The allow-list handed to PyJWT stays asymmetric-only.
+
+        The JWKS public key is public by design, so accepting an HS* entry
+        alongside it invites key confusion: a caller signs their own claims
+        with that key as a shared secret. Adding 'HS256' for client
+        compatibility would fail no other test in this file.
+        """
+        import awslabs.ec2rescue_for_linux_mcp_server.auth as auth
+
+        with patch.object(
+            auth.pyjwt, 'decode', wraps=auth.pyjwt.decode
+        ) as decode:
+            assert await verifier.verify_token(self._mint(signing_key)) is not None
+
+        algorithms = decode.call_args.kwargs['algorithms']
+        assert algorithms, 'an empty allow-list would let the token pick'
+        assert not [a for a in algorithms if a.upper().startswith('HS')]
